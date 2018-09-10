@@ -1,4 +1,4 @@
-CREATE OR REPLACE FUNCTION w_adl_delegue.set_adm_bdcarto(
+CREATE OR REPLACE FUNCTION set_adm_bdcarto(
     nom_schema character varying,
     emprise character varying,
     millesime character varying)
@@ -1377,13 +1377,7 @@ END;
 $BODY$
   LANGUAGE plpgsql VOLATILE
   COST 100;
-ALTER FUNCTION w_adl_delegue.set_adm_bdcarto(character varying, character varying, character varying)
-  OWNER TO postgres;
-GRANT EXECUTE ON FUNCTION w_adl_delegue.set_adm_bdcarto(character varying, character varying, character varying) TO public;
-GRANT EXECUTE ON FUNCTION w_adl_delegue.set_adm_bdcarto(character varying, character varying, character varying) TO postgres;
-GRANT EXECUTE ON FUNCTION w_adl_delegue.set_adm_bdcarto(character varying, character varying, character varying) TO adl_delegues;
-GRANT EXECUTE ON FUNCTION w_adl_delegue.set_adm_bdcarto(character varying, character varying, character varying) TO adl_detc;
-GRANT EXECUTE ON FUNCTION w_adl_delegue.set_adm_bdcarto(character varying, character varying, character varying) TO adl_dmob;
+				   
 COMMENT ON FUNCTION w_adl_delegue.set_adm_bdcarto(character varying, character varying, character varying) IS '[ADMIN - BDCARTO] - Administration d''un millesime de la BDCARTO une fois son import réalisé et les couches mises à la COVADIS
 
 Taches réalisées :
