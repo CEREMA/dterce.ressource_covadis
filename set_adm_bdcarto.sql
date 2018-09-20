@@ -5,11 +5,11 @@ CREATE OR REPLACE FUNCTION set_adm_bdcarto(
   RETURNS void AS
 $BODY$
 /*
-[ADMIN - BDCARTO] - Administration d'un millesime de la BDCARTO une fois son import réalisé et les couches mises à la COVADIS
+[ADMIN - BDCARTO] - Administration d'un millesime de la BDCARTO une fois son import réalisé
 
 Taches réalisées :
 - Renomage des tables
-- Suppression des colonnes gid
+- Suppression des colonnes gid (import via shp2pgsql)
 - Ajout d'une clé primaire sur le champs [id]
 - Ajout des contraintes
 - Commentaires des tables
@@ -40,6 +40,7 @@ Tables concernées :
 
 amélioration à faire :
 ---- B.4 Ajout des index attributaires
+---- ajout d'un test de présence du champs gid
 
 dernière MAJ : 10/09/2018
 */
