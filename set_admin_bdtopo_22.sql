@@ -75,10 +75,9 @@ n_toponyme_ferre_bdt_ddd_aaaa
 
 amélioration à faire :
 ---- B.3 Ajout de la clef primaire sauf si doublon d'identifiant
----- B.4 Ajout des index attributaires
 ---- ajout d'un test de presence du champs gid
 
-dernière MAJ : 24/09/2018
+dernière MAJ : 25/09/2018
 */
 
 DECLARE
@@ -86,10 +85,14 @@ object 						text;
 r 						record;
 req 						text;
 veriftable 					character varying;
-tb_table character varying[]; 			-- Tables BDTOPO faites d'objets ponctuels
-nb_table integer;				-- Nombre de table de points
+tb_table character varying[]; 			-- Tables faites d'objets ponctuels
+nb_table integer;				-- Nombre de tables
 nom_table character varying;			-- nom de la table en text
 i_table int2; 					-- Nombre de table dans la boucle Tables
+tb_index character varying[]; 			-- Index à créer
+nb_index integer;				-- Nombre d'index à créér
+nom_index character varying;			-- nom du champs àindexer en text
+i_index int2; 					-- Nombre d'index dans la boucle des index
 BEGIN
 
 
@@ -170,11 +173,20 @@ nb_table := array_length(tb_table, 1);
 
 FOR i_table IN 1..nb_table LOOP
 	nom_table:=tb_table[i_table];
+	SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = nom_table INTO veriftable;
+	IF LEFT(veriftable,length (nom_table)) = nom_table
+	THEN
 	req := '
 		ALTER TABLE ' || nom_schema || '.n_' || nom_table || '_bdt_' || emprise || '_' || millesime || ' ADD CONSTRAINT enforce_geotype_geom CHECK (geometrytype(geom) = ''POINT''::text OR geom IS NULL);
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
+	
+	ELSE
+	req :='La table ' || nom_schema || '.' || nom_table || ' n’est pas présente';
+	RAISE NOTICE '%', req;
+
+	END IF;
 END LOOP; 
 
 ---- 'MULTILINESTRING' : Tables BDTOPO faites d'objets linéaires
@@ -198,11 +210,20 @@ nb_table := array_length(tb_table, 1);
 
 FOR i_table IN 1..nb_table LOOP
 	nom_table:=tb_table[i_table];
+	SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = nom_table INTO veriftable;
+	IF LEFT(veriftable,length (nom_table)) = nom_table
+	THEN
 	req := '
 		ALTER TABLE ' || nom_schema || '.n_' || nom_table || '_bdt_' || emprise || '_' || millesime || ' ADD CONSTRAINT enforce_geotype_geom CHECK (geometrytype(geom) = ''MULTILINESTRING''::text OR geom IS NULL);
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
+	
+	ELSE
+	req :='La table ' || nom_schema || '.' || nom_table || ' n’est pas présente';
+	RAISE NOTICE '%', req;
+
+	END IF;
 END LOOP; 
 
 ---- ''MULTIPOLYGON'': Tables BDTOPO faites d'objets polygones
@@ -231,11 +252,20 @@ nb_table := array_length(tb_table, 1);
 
 FOR i_table IN 1..nb_table LOOP
 	nom_table:=tb_table[i_table];
+	SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = nom_table INTO veriftable;
+	IF LEFT(veriftable,length (nom_table)) = nom_table
+	THEN
 	req := '
 		ALTER TABLE ' || nom_schema || '.n_' || nom_table || '_bdt_' || emprise || '_' || millesime || ' ADD CONSTRAINT enforce_geotype_geom CHECK (geometrytype(geom) = ''MULTIPOLYGON''::text OR geom IS NULL);
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
+	
+	ELSE
+	req :='La table ' || nom_schema || '.' || nom_table || ' n’est pas présente';
+	RAISE NOTICE '%', req;
+
+	END IF;
 END LOOP; 
 
 
@@ -261,7 +291,7 @@ END LOOP;
     FOR object IN SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND right(tablename,12) = 'bdt_' || emprise || '_' || millesime
     LOOP
         req := '
-	DROP INDEX IF EXISTS ' || object || '_geom_gist;
+	DROP INDEX IF EXISTS ' || nom_schema || '.' || object || '_geom_gist;
 	CREATE INDEX ' || object || '_geom_gist ON ' || nom_schema || '.' || object || ' USING gist (geom) TABLESPACE index;
         ALTER TABLE ' || nom_schema || '.' || object || ' CLUSTER ON ' || object || '_geom_gist;
 	';
@@ -269,35 +299,45 @@ END LOOP;
 	RAISE NOTICE '%', req;
     END LOOP;
 
+----------------------------
 ---- B.5 Travail à la Table
+----------------------------
 
 ---- B.5.A_RESEAU_ROUTIER
 ---- B.5.A_1 ROUTE
----- Index
-	req :='
-		CREATE INDEX n_route_bdt_'|| emprise ||'_'|| millesime ||'_NATURE_idx ON '||nom_schema||'.n_route_bdt_'|| emprise ||'_'|| millesime ||' USING btree (NATURE) TABLESPACE index;
-		CREATE INDEX n_route_bdt_'|| emprise ||'_'|| millesime ||'_NUMERO_idx ON '||nom_schema||'.n_route_bdt_'|| emprise ||'_'|| millesime ||' USING btree (NUMERO) TABLESPACE index;
-		CREATE INDEX n_route_bdt_'|| emprise ||'_'|| millesime ||'_IMPORTANCE_idx ON '||nom_schema||'.n_route_bdt_'|| emprise ||'_'|| millesime ||' USING btree (IMPORTANCE) TABLESPACE index;
-		CREATE INDEX n_route_bdt_'|| emprise ||'_'|| millesime ||'_CL_ADMIN_idx ON '||nom_schema||'.n_route_bdt_'|| emprise ||'_'|| millesime ||' USING btree (CL_ADMIN) TABLESPACE index;
-		CREATE INDEX n_route_bdt_'|| emprise ||'_'|| millesime ||'_GESTION_idx ON '||nom_schema||'.n_route_bdt_'|| emprise ||'_'|| millesime ||' USING btree (GESTION) TABLESPACE index;
-		CREATE INDEX n_route_bdt_'|| emprise ||'_'|| millesime ||'_FRANCHISST_idx ON '||nom_schema||'.n_route_bdt_'|| emprise ||'_'|| millesime ||' USING btree (FRANCHISST) TABLESPACE index;
-		CREATE INDEX n_route_bdt_'|| emprise ||'_'|| millesime ||'_LARGEUR_idx ON '||nom_schema||'.n_route_bdt_'|| emprise ||'_'|| millesime ||' USING btree (LARGEUR) TABLESPACE index;
-		CREATE INDEX n_route_bdt_'|| emprise ||'_'|| millesime ||'_NB_VOIES_idx ON '||nom_schema||'.n_route_bdt_'|| emprise ||'_'|| millesime ||' USING btree (NB_VOIES) TABLESPACE index;
-		CREATE INDEX n_route_bdt_'|| emprise ||'_'|| millesime ||'_POS_SOL_idx ON '||nom_schema||'.n_route_bdt_'|| emprise ||'_'|| millesime ||' USING btree (POS_SOL) TABLESPACE index;
-		CREATE INDEX n_route_bdt_'|| emprise ||'_'|| millesime ||'_SENS_idx ON '||nom_schema||'.n_route_bdt_'|| emprise ||'_'|| millesime ||' USING btree (SENS) TABLESPACE index;
-		CREATE INDEX n_route_bdt_'|| emprise ||'_'|| millesime ||'_INSEECOM_G_idx ON '||nom_schema||'.n_route_bdt_'|| emprise ||'_'|| millesime ||' USING btree (INSEECOM_G) TABLESPACE index;
-		CREATE INDEX n_route_bdt_'|| emprise ||'_'|| millesime ||'_INSEECOM_D_idx ON '||nom_schema||'.n_route_bdt_'|| emprise ||'_'|| millesime ||' USING btree (INSEECOM_D) TABLESPACE index;
-		CREATE INDEX n_route_bdt_'|| emprise ||'_'|| millesime ||'_ETAT_idx ON '||nom_schema||'.n_route_bdt_'|| emprise ||'_'|| millesime ||' USING btree (ETAT) TABLESPACE index;
-	';
-	EXECUTE(req);
-	RAISE NOTICE '%', req;
-
----- Commentaire Table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_route_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_route_bdt_')) = 'n_route_bdt_'
 	THEN
+---- Index
+	nom_table := 'n_route_bdt';
+	tb_index := array['id',
+			'nature',
+			'importance',
+			'cl_admin',
+			'gestion',
+			'franchisst',
+			'largeur',
+			'nb_voies',
+			'pos_sol',
+			'sens',
+			'inseecom_d',
+			'inseecom_g',
+			'etat'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req :='
-		COMMENT ON TABLE ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || ' IS ''Portion de voie de communication de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Portion de voie de communication de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Voie de communication destinée aux automobiles, aux piétons, aux cycles ou aux animaux, homogène pour l’ensemble des attributs et des relations qui la concerne.
 Le tronçon de route peut être revêtu ou non revêtu (pas de revêtement de surface ou revêtement de surface fortement dégradé).
 Dans le cas d’un tronçon de route revêtu, on représente uniquement la chaussée, délimitée par les bas-côtés ou les trottoirs (cf. Modélisation géométrique).'';
@@ -306,106 +346,144 @@ Dans le cas d’un tronçon de route revêtu, on représente uniquement la chaus
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.ALIAS_D IS ''Dénomination ancienne ou autre nom voie droite.  Une voie est un ensemble de tronçons de route associés à un même nom. Une voie est  identifiée par son nom dans une commune donnée.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.ALIAS_G IS ''Dénomination ancienne ou autre nom voie gauche.  Une voie est un ensemble de tronçons de route associés à un même nom. Une voie est  identifiée par son nom dans une commune donnée.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.BORNEDEB_D IS ''Borne début droite.  Numéro de borne à droite du tronçon en son sommet initial.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.BORNEDEB_G IS ''Borne fin gauche.  Numéro de borne à gauche du tronçon en son sommet final.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.BORNEFIN_D IS ''Borne droite de fin de voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.BORNEFIN_G IS ''Borne fin droite.  Numéro de borne à droite du tronçon en son sommet final.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.CL_ADMIN IS ''Attribut permettant de préciser le statut d''''une route'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.CODEPOST_D IS ''Code postal du côté droit de la voie  Code postal de la commune à droite du tronçon par rapport à son sens de numérisation.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.CODEPOST_G IS ''Code postal du côté gauche de la voie  Code postal de la commune à gauche du tronçon par rapport à son sens de  numérisation.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.CODEVOIE_D IS ''Identifiant du coté droit de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.CODEVOIE_G IS ''Identifiant droite.  Identifiant de la voie associée au côté droit du tronçon.  Identifiant de la voie associée au côté gauche du tronçon.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.ETAT IS ''Indique si le tronçon est en construction'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.FICTIF IS ''Indique la nature fictive ou réelle du tronçon - V'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.FRANCHISST IS ''Franchissement.  Cet attribut informe sur le niveau de l''''objet par rapport à la surface du sol.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.GESTION IS ''Définit le gestionnaire administratif d''''une route. Toutes les routes classées possèdent un  Gestionnaire.  Il existe différentes catégories de routes pour lesquelles le gestionnaire diffère.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.ID IS ''Cet identifiant est unique. Il est stable d''''une édition à l''''autre. Il permet aussi d''''établir un  lien entre le ponctuel de la classe « ADRESSE » des produits BD ADRESSE® et POINT  ADRESSE®'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.IMPORTANCE IS ''Cet attribut matérialise une hiérarchisation du réseau routier fondée, non  pas sur un critère administratif, mais sur l''''importance des tronçons de route pour le trafic  routier.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.INSEECOM_D IS ''INSEE Commune droite.  Numéro d''''INSEE de la commune à droite du tronçon par rapport à son sens de  numérisation.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.INSEECOM_G IS ''Numéro INSEE de la commune à droite de la voie  Numéro d''''INSEE de la commune à gauche du tronçon par rapport à son sens de  numérisation.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.IT_EUROP IS ''Itinéraire européen.  Numéro de route européenne : une route européenne emprunte en général le réseau  autoroutier ou national.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.IT_VERT IS ''Itinéraire vert.  Indique l''''appartenance ou non d''''un tronçon routier au réseau vert.  Le réseau vert, composé de pôles verts et de liaisons vertes, couvre l''''ensemble du  territoire français.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.LARGEUR IS ''Largeur de chaussée.  Largeur de chaussée (d''''accotement à accotement) exprimée en mètres.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.MISE_SERV IS ''Date de mise en service.  Définit la date prévue ou la date effective de mise en service d''''un tronçon de route.  Cet attribut n''''est rempli que pour les tronçons en construction, il est à “NR“ dans les autres cas.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.NATURE IS ''Attribut permettant de distinguer différentes natures de tronçon de route.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.NB_VOIES IS ''Nombre de voies.  Nombre total de voies d''''une route, d''''une rue ou d''''une chaussée de route à chaussées séparées.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.NOM_ITI IS ''Nom de l''''itinéraire ou "Valeur non renseignée"'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.NOM_VOIE_D IS ''Une voie est un ensemble de tronçons de route associés à un même nom. Une voie est  identifiée par son nom dans une commune donnée.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.NOM_VOIE_G IS ''Nom voie à gauche. Le nom de voie est celui qui sert à l''''adressage.  Une voie est un ensemble de tronçons de route associés à un même nom. Une voie est  identifiée par son nom dans une commune donnée.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.NUMERO IS ''Numéro de la voie (D50,N106…) (NR pour Non renseigné'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.POS_SOL IS ''Position par rapport au sol.  Donne le niveau de l''''objet par rapport à la surface du sol (valeur négative pour un objet  souterrain, nulle pour un objet au sol et positive pour un objet en sursol).'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.PREC_ALTI IS ''Précision géométrique altimétrique.  Attribut précisant la précision géométrique en altimétrie de la donnée.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.PREC_PLANI IS ''Précision géométrique planimétrique.  Attribut précisant la précision géométrique en planimétrie de la donnée.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.SENS IS ''Sens de circulation autorisée pour les automobiles sur les voies.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.TYP_ADRES IS ''Type d''''adressage.  Renseigne sur le type d''''adressage du tronçon.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.Z_FIN IS ''Altitude finale : c''''est l''''altitude du sommet final du tronçon.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.Z_INI IS ''c''''est l''''altitude du sommet initial du tronçon.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.ALIAS_D IS ''Dénomination ancienne ou autre nom voie droite.  Une voie est un ensemble de tronçons de route associés à un même nom. Une voie est  identifiée par son nom dans une commune donnée.'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.ALIAS_G IS ''Dénomination ancienne ou autre nom voie gauche.  Une voie est un ensemble de tronçons de route associés à un même nom. Une voie est  identifiée par son nom dans une commune donnée.'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.BORNEDEB_D IS ''Borne début droite.  Numéro de borne à droite du tronçon en son sommet initial.'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.BORNEDEB_G IS ''Borne fin gauche.  Numéro de borne à gauche du tronçon en son sommet final.'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.BORNEFIN_D IS ''Borne droite de fin de voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.BORNEFIN_G IS ''Borne fin droite.  Numéro de borne à droite du tronçon en son sommet final.'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.CL_ADMIN IS ''Attribut permettant de préciser le statut d''''une route'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.CODEPOST_D IS ''Code postal du côté droit de la voie  Code postal de la commune à droite du tronçon par rapport à son sens de numérisation.'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.CODEPOST_G IS ''Code postal du côté gauche de la voie  Code postal de la commune à gauche du tronçon par rapport à son sens de  numérisation.'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.CODEVOIE_D IS ''Identifiant du coté droit de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.CODEVOIE_G IS ''Identifiant droite.  Identifiant de la voie associée au côté droit du tronçon.  Identifiant de la voie associée au côté gauche du tronçon.'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.ETAT IS ''Indique si le tronçon est en construction'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.FICTIF IS ''Indique la nature fictive ou réelle du tronçon - V'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.FRANCHISST IS ''Franchissement.  Cet attribut informe sur le niveau de l''''objet par rapport à la surface du sol.'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.GESTION IS ''Définit le gestionnaire administratif d''''une route. Toutes les routes classées possèdent un  Gestionnaire.  Il existe différentes catégories de routes pour lesquelles le gestionnaire diffère.'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.ID IS ''Cet identifiant est unique. Il est stable d''''une édition à l''''autre. Il permet aussi d''''établir un  lien entre le ponctuel de la classe « ADRESSE » des produits BD ADRESSE® et POINT  ADRESSE®'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.IMPORTANCE IS ''Cet attribut matérialise une hiérarchisation du réseau routier fondée, non  pas sur un critère administratif, mais sur l''''importance des tronçons de route pour le trafic  routier.'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.INSEECOM_D IS ''INSEE Commune droite.  Numéro d''''INSEE de la commune à droite du tronçon par rapport à son sens de  numérisation.'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.INSEECOM_G IS ''Numéro INSEE de la commune à droite de la voie  Numéro d''''INSEE de la commune à gauche du tronçon par rapport à son sens de  numérisation.'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.IT_EUROP IS ''Itinéraire européen.  Numéro de route européenne : une route européenne emprunte en général le réseau  autoroutier ou national.'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.IT_VERT IS ''Itinéraire vert.  Indique l''''appartenance ou non d''''un tronçon routier au réseau vert.  Le réseau vert, composé de pôles verts et de liaisons vertes, couvre l''''ensemble du  territoire français.'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.LARGEUR IS ''Largeur de chaussée.  Largeur de chaussée (d''''accotement à accotement) exprimée en mètres.'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.MISE_SERV IS ''Date de mise en service.  Définit la date prévue ou la date effective de mise en service d''''un tronçon de route.  Cet attribut n''''est rempli que pour les tronçons en construction, il est à “NR“ dans les autres cas.'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.NATURE IS ''Attribut permettant de distinguer différentes natures de tronçon de route.'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.NB_VOIES IS ''Nombre de voies.  Nombre total de voies d''''une route, d''''une rue ou d''''une chaussée de route à chaussées séparées.'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.NOM_ITI IS ''Nom de l''''itinéraire ou "Valeur non renseignée"'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.NOM_VOIE_D IS ''Une voie est un ensemble de tronçons de route associés à un même nom. Une voie est  identifiée par son nom dans une commune donnée.'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.NOM_VOIE_G IS ''Nom voie à gauche. Le nom de voie est celui qui sert à l''''adressage.  Une voie est un ensemble de tronçons de route associés à un même nom. Une voie est  identifiée par son nom dans une commune donnée.'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.NUMERO IS ''Numéro de la voie (D50,N106…) (NR pour Non renseigné'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.POS_SOL IS ''Position par rapport au sol.  Donne le niveau de l''''objet par rapport à la surface du sol (valeur négative pour un objet  souterrain, nulle pour un objet au sol et positive pour un objet en sursol).'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.PREC_ALTI IS ''Précision géométrique altimétrique.  Attribut précisant la précision géométrique en altimétrie de la donnée.'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.PREC_PLANI IS ''Précision géométrique planimétrique.  Attribut précisant la précision géométrique en planimétrie de la donnée.'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.SENS IS ''Sens de circulation autorisée pour les automobiles sur les voies.'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.TYP_ADRES IS ''Type d''''adressage.  Renseigne sur le type d''''adressage du tronçon.'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.Z_FIN IS ''Altitude finale : c''''est l''''altitude du sommet final du tronçon.'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.Z_INI IS ''c''''est l''''altitude du sommet initial du tronçon.'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_route_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
+---- B.5.A_RESEAU_ROUTIER
 ---- B.5.A_2 CHEMIN
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire Table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_chemin_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_chemin_bdt_')) = 'n_chemin_bdt_'
 	THEN
+---- Index
+	nom_table := 'n_chemin_bdt';
+	tb_index := array['id',
+			'prec_plani',
+			'prec_alti',
+			'nature',
+			'franchisst',
+			'nom_iti',
+			'pos_sol'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_chemin_bdt_' || emprise || '_' || millesime || ' IS ''Voie de communication terrestre non ferrée destinée aux piétons, aux cycles ou aux animaux, de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Voie de communication terrestre non ferrée destinée aux piétons, aux cycles ou aux animaux, de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Voie de communication terrestre non ferrée destinée aux piétons, aux cycles ou aux animaux, ou route sommairement revêtue (pas de revêtement de surface ou revêtement de surface fortement dégradé).'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_chemin_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du tronçon.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du tronçon.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_chemin_bdt_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_chemin_bdt_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_chemin_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_chemin_bdt_' || emprise || '_' || millesime || '.franchisst IS ''Nature du franchissement'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_chemin_bdt_' || emprise || '_' || millesime || '.nom_iti IS ''Nom d’itinéraire'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_chemin_bdt_' || emprise || '_' || millesime || '.pos_sol IS ''Position par rapport au sol'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_chemin_bdt_' || emprise || '_' || millesime || '.z_ini IS ''Altitude du sommet initial du tronçon'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_chemin_bdt_' || emprise || '_' || millesime || '.z_fin IS ''Altitude du sommet final du tronçon'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_chemin_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.franchisst IS ''Nature du franchissement'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nom_iti IS ''Nom d’itinéraire'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.pos_sol IS ''Position par rapport au sol'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_ini IS ''Altitude du sommet initial du tronçon'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_fin IS ''Altitude du sommet final du tronçon'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_chemin_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
+---- B.5.A_RESEAU_ROUTIER
 ---- B.5.A_3 ROUTE_NOMMEE
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire Table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_route_nommee_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_route_nommee_bdt_')) = 'n_route_nommee_bdt_'
 	THEN
+---- Index
+	nom_table := 'n_route_nommee_bdt';
+	tb_index := array['id',
+			'nature',
+			'importance',
+			'cl_admin',
+			'gestion',
+			'franchisst',
+			'largeur',
+			'nb_voies',
+			'pos_sol',
+			'sens',
+			'inseecom_d',
+			'inseecom_g',
+			'etat'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || ' IS '' Portion de voie de communication destinée aux automobiles, aux piétons, qui possèdent réellement un nom de rue de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS '' Portion de voie de communication destinée aux automobiles, aux piétons, qui possèdent réellement un nom de rue de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 1.  Portion de voie de communication destinée aux automobiles, aux piétons, aux cycles ou aux animaux, homogène pour l’ensemble des attributs et des relations qui la concerne, et qui possèdent réellement un nom de rue droit ou un nom de rue gauche (d’où le nom de la classe ROUTE_NOMMEE). 
 2.  Le  tronçon  de  route  peut  être  revêtu  ou  non  revêtu  (pas  de  revêtement  de surface ou revêtement de surface fortement dégradé). Dans le cas d’un tronçon de route revêtu, on représente uniquement la chaussée, délimitée par les bas-côtés ou les trottoirs (cf. Modélisation géométrique). '';
 	';
@@ -413,68 +491,90 @@ SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du tronçon.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du tronçon.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du tronçon'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.numero IS ''Numéro de la voie (D50, N106…)'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.nom_voie_g IS ''Nom du côté gauche de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.nom_voie_d IS ''Nom du côté droit de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.importance IS ''Importance'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.cl_admin IS ''Classement administratif'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.gestion IS ''Gestionnaire de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.mise_serv IS ''Date de mise en service'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.it_vert IS ''Appartenance à un itinéraire vert'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.it_europ IS ''Numéro de l’itinéraire européen'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.fictif IS ''Indique la nature fictive ou réel du tronçon'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.franchisst IS ''Nature du franchissement'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.largeur IS ''Largeur de la chaussée'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.nom_iti IS ''Nom d’itinéraire'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.nb_voies IS ''Nombre de voies'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.pos_sol IS ''Position par rapport au sol'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.sens IS ''Sens de circulation de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.inseecom_g IS ''Numéro Insee de la commune à gauche de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.inseecom_d IS ''Numéro Insee de la commune à droite de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.codevoie_g IS ''Identifiant du côté gauche de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.codevoie_d IS ''Identifiant du côté droit de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.typ_adres IS ''Type d’adressage de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.bornedeb_g IS ''Borne gauche de début de voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.bornedeb_d IS ''Borne droite de début de voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.bornefin_g IS ''Borne gauche de fin de voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.bornefin_d IS ''Borne droite de fin de voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.etat IS ''Indique si le tronçon est en construction'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.z_ini IS ''Altitude du sommet initial du tronçon'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.z_fin IS ''Altitude du sommet final du tronçon'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.alias_g IS ''Ancien ou autre nom utilisé côté gauche de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.alias_d IS ''Ancien ou autre nom utilisé côté droit de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.codepost_g IS ''Code postal du côté gauche de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.codepost_d IS ''Code postal du côté droit de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du tronçon'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.numero IS ''Numéro de la voie (D50, N106…)'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nom_voie_g IS ''Nom du côté gauche de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nom_voie_d IS ''Nom du côté droit de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.importance IS ''Importance'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.cl_admin IS ''Classement administratif'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.gestion IS ''Gestionnaire de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.mise_serv IS ''Date de mise en service'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.it_vert IS ''Appartenance à un itinéraire vert'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.it_europ IS ''Numéro de l’itinéraire européen'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.fictif IS ''Indique la nature fictive ou réel du tronçon'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.franchisst IS ''Nature du franchissement'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.largeur IS ''Largeur de la chaussée'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nom_iti IS ''Nom d’itinéraire'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nb_voies IS ''Nombre de voies'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.pos_sol IS ''Position par rapport au sol'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.sens IS ''Sens de circulation de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.inseecom_g IS ''Numéro Insee de la commune à gauche de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.inseecom_d IS ''Numéro Insee de la commune à droite de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.codevoie_g IS ''Identifiant du côté gauche de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.codevoie_d IS ''Identifiant du côté droit de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.typ_adres IS ''Type d’adressage de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.bornedeb_g IS ''Borne gauche de début de voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.bornedeb_d IS ''Borne droite de début de voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.bornefin_g IS ''Borne gauche de fin de voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.bornefin_d IS ''Borne droite de fin de voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.etat IS ''Indique si le tronçon est en construction'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_ini IS ''Altitude du sommet initial du tronçon'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_fin IS ''Altitude du sommet final du tronçon'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.alias_g IS ''Ancien ou autre nom utilisé côté gauche de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.alias_d IS ''Ancien ou autre nom utilisé côté droit de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.codepost_g IS ''Code postal du côté gauche de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.codepost_d IS ''Code postal du côté droit de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_route_nommee_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
+---- B.5.A_RESEAU_ROUTIER
 ---- B.5.A_4 ROUTE_PRIMAIRE
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire Table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_route_primaire_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_route_primaire_bdt_')) = 'n_route_primaire_bdt_'
 	THEN
+---- Index
+	nom_table := 'n_route_primaire_bdt';
+	tb_index := array['id',
+			'nature',
+			'importance',
+			'cl_admin',
+			'gestion',
+			'franchisst',
+			'largeur',
+			'nb_voies',
+			'pos_sol',
+			'sens',
+			'inseecom_d',
+			'inseecom_g',
+			'etat'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || ' IS ''Portion de voie de communication primaire destinée aux automobiles, aux piétons ou aux cycles, la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Portion de voie de communication primaire destinée aux automobiles, aux piétons ou aux cycles, la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Portion de voie de communication destinée aux automobiles, aux piétons ou aux cycles, homogène pour l’ensemble des attributs et des relations qui la concerne. 
 Cette  classe  est  un  sous-ensemble  de  la  classe  ROUTE,  et  comprend uniquement les tronçons de route d’importance 1 ou 2. 
 Cela  permet  de  n’utiliser  ou  de  n’afficher  que  le  réseau  dit  principal, pour des raisons de faciliter de manipulation ou de lisibilité à l’écran suivant l’échelle.'';
@@ -483,67 +583,89 @@ Cela  permet  de  n’utiliser  ou  de  n’afficher  que  le  réseau  dit  pri
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du tronçon.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du tronçon.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.numero IS ''Numéro de la voie (D50, N106…)'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.nom_voie_g IS ''Nom du côté gauche de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.nom_voie_d IS ''Nom du côté droit de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.importance IS ''Importance'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.cl_admin IS ''Classement administratif'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.gestion IS ''Gestionnaire de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.mise_serv IS ''Date de mise en service'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.it_vert IS ''Appartenance à un itinéraire vert'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.it_europ IS ''Numéro de l’itinéraire européen'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.fictif IS ''Indique la nature fictive ou réel du tronçon'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.franchisst IS ''Nature du franchissement'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.largeur IS ''Largeur de la chaussée'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.nom_iti IS ''Nom d’itinéraire'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.nb_voies IS ''Nombre de voies'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.pos_sol IS ''Position par rapport au sol'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.sens IS ''Sens de circulation de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.inseecom_g IS ''Numéro Insee de la commune à gauche de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.inseecom_d IS ''Numéro Insee de la commune à droite de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.codevoie_g IS ''Identifiant du côté gauche de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.codevoie_d IS ''Identifiant du côté droit de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.typ_adres IS ''Type d’adressage de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.bornedeb_g IS ''Borne gauche de début de voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.bornedeb_d IS ''Borne droite de début de voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.bornefin_g IS ''Borne gauche de fin de voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.bornefin_d IS ''Borne droite de fin de voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.etat IS ''Indique si le tronçon est en construction'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.z_ini IS ''Altitude du sommet initial du tronçon'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.z_fin IS ''Altitude du sommet final du tronçon'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.alias_g IS ''Ancien ou autre nom utilisé côté gauche de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.alias_d IS ''Ancien ou autre nom utilisé côté droit de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.codepost_g IS ''Code postal du côté gauche de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.codepost_d IS ''Code postal du côté droit de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.numero IS ''Numéro de la voie (D50, N106…)'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nom_voie_g IS ''Nom du côté gauche de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nom_voie_d IS ''Nom du côté droit de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.importance IS ''Importance'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.cl_admin IS ''Classement administratif'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.gestion IS ''Gestionnaire de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.mise_serv IS ''Date de mise en service'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.it_vert IS ''Appartenance à un itinéraire vert'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.it_europ IS ''Numéro de l’itinéraire européen'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.fictif IS ''Indique la nature fictive ou réel du tronçon'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.franchisst IS ''Nature du franchissement'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.largeur IS ''Largeur de la chaussée'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nom_iti IS ''Nom d’itinéraire'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nb_voies IS ''Nombre de voies'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.pos_sol IS ''Position par rapport au sol'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.sens IS ''Sens de circulation de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.inseecom_g IS ''Numéro Insee de la commune à gauche de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.inseecom_d IS ''Numéro Insee de la commune à droite de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.codevoie_g IS ''Identifiant du côté gauche de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.codevoie_d IS ''Identifiant du côté droit de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.typ_adres IS ''Type d’adressage de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.bornedeb_g IS ''Borne gauche de début de voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.bornedeb_d IS ''Borne droite de début de voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.bornefin_g IS ''Borne gauche de fin de voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.bornefin_d IS ''Borne droite de fin de voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.etat IS ''Indique si le tronçon est en construction'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_ini IS ''Altitude du sommet initial du tronçon'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_fin IS ''Altitude du sommet final du tronçon'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.alias_g IS ''Ancien ou autre nom utilisé côté gauche de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.alias_d IS ''Ancien ou autre nom utilisé côté droit de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.codepost_g IS ''Code postal du côté gauche de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.codepost_d IS ''Code postal du côté droit de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_route_primaire_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
+---- B.5.A_RESEAU_ROUTIER
 ---- B.5.A_5 ROUTE_SECONDAIRE
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire Table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_route_secondaire_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_route_secondaire_bdt_')) = 'n_route_secondaire_bdt_'
 	THEN
+---- Index
+	nom_table := 'n_route_secondaire_bdt';
+	tb_index := array['id',
+			'nature',
+			'importance',
+			'cl_admin',
+			'gestion',
+			'franchisst',
+			'largeur',
+			'nb_voies',
+			'pos_sol',
+			'sens',
+			'inseecom_d',
+			'inseecom_g',
+			'etat'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || ' IS ''Portion de voie de communication primaire destinée aux automobiles, aux piétons ou aux cycles, la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Portion de voie de communication primaire destinée aux automobiles, aux piétons ou aux cycles, la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Portion de voie de communication destinée aux automobiles, aux piétons ou aux cycles, homogène pour l’ensemble des attributs et des relations qui la concerne. 
 Cette  classe  est  un  sous-ensemble  de  la  classe  ROUTE,  et  comprend uniquement les tronçons de route d’importance 1 ou 2. 
 Cela  permet  de  n’utiliser  ou  de  n’afficher  que  le  réseau  dit  principal, pour des raisons de faciliter de manipulation ou de lisibilité à l’écran suivant l’échelle.'';
@@ -552,67 +674,78 @@ Cela  permet  de  n’utiliser  ou  de  n’afficher  que  le  réseau  dit  pri
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du tronçon.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du tronçon.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.numero IS ''Numéro de la voie (D50, N106…)'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.nom_voie_g IS ''Nom du côté gauche de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.nom_voie_d IS ''Nom du côté droit de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.importance IS ''Importance'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.cl_admin IS ''Classement administratif'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.gestion IS ''Gestionnaire de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.mise_serv IS ''Date de mise en service'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.it_vert IS ''Appartenance à un itinéraire vert'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.it_europ IS ''Numéro de l’itinéraire européen'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.fictif IS ''Indique la nature fictive ou réel du tronçon'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.franchisst IS ''Nature du franchissement'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.largeur IS ''Largeur de la chaussée'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.nom_iti IS ''Nom d’itinéraire'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.nb_voies IS ''Nombre de voies'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.pos_sol IS ''Position par rapport au sol'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.sens IS ''Sens de circulation de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.inseecom_g IS ''Numéro Insee de la commune à gauche de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.inseecom_d IS ''Numéro Insee de la commune à droite de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.codevoie_g IS ''Identifiant du côté gauche de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.codevoie_d IS ''Identifiant du côté droit de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.typ_adres IS ''Type d’adressage de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.bornedeb_g IS ''Borne gauche de début de voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.bornedeb_d IS ''Borne droite de début de voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.bornefin_g IS ''Borne gauche de fin de voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.bornefin_d IS ''Borne droite de fin de voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.etat IS ''Indique si le tronçon est en construction'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.z_ini IS ''Altitude du sommet initial du tronçon'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.z_fin IS ''Altitude du sommet final du tronçon'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.alias_g IS ''Ancien ou autre nom utilisé côté gauche de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.alias_d IS ''Ancien ou autre nom utilisé côté droit de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.codepost_g IS ''Code postal du côté gauche de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.codepost_d IS ''Code postal du côté droit de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.numero IS ''Numéro de la voie (D50, N106…)'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nom_voie_g IS ''Nom du côté gauche de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nom_voie_d IS ''Nom du côté droit de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.importance IS ''Importance'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.cl_admin IS ''Classement administratif'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.gestion IS ''Gestionnaire de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.mise_serv IS ''Date de mise en service'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.it_vert IS ''Appartenance à un itinéraire vert'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.it_europ IS ''Numéro de l’itinéraire européen'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.fictif IS ''Indique la nature fictive ou réel du tronçon'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.franchisst IS ''Nature du franchissement'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.largeur IS ''Largeur de la chaussée'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nom_iti IS ''Nom d’itinéraire'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nb_voies IS ''Nombre de voies'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.pos_sol IS ''Position par rapport au sol'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.sens IS ''Sens de circulation de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.inseecom_g IS ''Numéro Insee de la commune à gauche de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.inseecom_d IS ''Numéro Insee de la commune à droite de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.codevoie_g IS ''Identifiant du côté gauche de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.codevoie_d IS ''Identifiant du côté droit de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.typ_adres IS ''Type d’adressage de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.bornedeb_g IS ''Borne gauche de début de voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.bornedeb_d IS ''Borne droite de début de voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.bornefin_g IS ''Borne gauche de fin de voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.bornefin_d IS ''Borne droite de fin de voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.etat IS ''Indique si le tronçon est en construction'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_ini IS ''Altitude du sommet initial du tronçon'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_fin IS ''Altitude du sommet final du tronçon'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.alias_g IS ''Ancien ou autre nom utilisé côté gauche de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.alias_d IS ''Ancien ou autre nom utilisé côté droit de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.codepost_g IS ''Code postal du côté gauche de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.codepost_d IS ''Code postal du côté droit de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_route_secondaire_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
+---- B.5.A_RESEAU_ROUTIER
 ---- B.5.A_6 SURFACE_ROUTE
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_surface_route_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_surface_route_bdt_')) = 'n_surface_route_bdt_'
 	THEN
+---- Index
+	nom_table := 'n_surface_route_bdt';
+	tb_index := array['id',
+			'nature'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_surface_route_bdt_' || emprise || '_' || millesime || ' IS ''Partie de la chaussée d’une route caractérisée par une largeur exceptionnelle de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Partie de la chaussée d’une route caractérisée par une largeur exceptionnelle de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Zone à trafic non structuré.
 Sélection : Toutes les zones revêtues pour le roulage ou le parcage des automobiles, et faisant plus  de  50 m  de  large  sont  incluses  (environ  ½  ha  pour  les  parkings).  Les  zones  revêtues  de moins de 50 m de large sont exclues (pour les zones de moins de 50 m de large réservées à la circulation automobile, voir classe ROUTE). 
 Modélisation géométrique : Contours de la chaussée, au sol. La surface peut être trouée.'';
@@ -621,35 +754,47 @@ Modélisation géométrique : Contours de la chaussée, au sol. La surface peut 
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_surface_route_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant de la surface_route.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant de la surface_route.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_surface_route_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant de la surface_route'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_surface_route_bdt_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_surface_route_bdt_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_surface_route_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature de la surface'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_surface_route_bdt_' || emprise || '_' || millesime || '.z_moyen IS ''Altitude moyenne des points composants la surface'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_surface_route_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature de la surface'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_moyen IS ''Altitude moyenne des points composants la surface'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_surface_route_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
-
+---- B.5.A_RESEAU_ROUTIER
 ---- B.5.A_7 TOPONYME_COMMUNICATION
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_toponyme_communication_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_toponyme_communication_bdt_')) = 'n_toponyme_communication_bdt_'
 	THEN
+---- Index
+	nom_table := 'n_toponyme_communication_bdt';
+	tb_index := array['id',
+			'origin_nom',
+			'nom',
+			'importance',
+			'nature'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
 		COMMENT ON TABLE ' || nom_schema || '.n_toponyme_communication_bdt_' || emprise || '_' || millesime || ' IS ''Objet nommé du thème routier de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Sélection : Tous les noms liés à un réseau routier.
@@ -659,37 +804,45 @@ Modélisation géométrique : Centre du lieu nommé. '';
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_toponyme_communication_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant de la surface_route.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant de la surface_route.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_toponyme_communication_bdt_' || emprise || '_' || millesime || '.origin_nom IS ''Origine du toponyme'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_toponyme_communication_bdt_' || emprise || '_' || millesime || '.nom IS ''Nom'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_toponyme_communication_bdt_' || emprise || '_' || millesime || '.importance IS ''Importance du toponyme'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_toponyme_communication_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature du toponyme'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_toponyme_communication_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.origin_nom IS ''Origine du toponyme'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nom IS ''Nom'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.importance IS ''Importance du toponyme'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature du toponyme'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_toponyme_communication_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.B_VOIES_FERREES_ET_AUTRES
 ---- B.5.B_1 AIRE_TRIAGE
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_aire_triage_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_aire_triage_bdt_')) = 'n_aire_triage_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_aire_triage_bdt';
+	tb_index := array['id'];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_aire_triage_bdt_' || emprise || '_' || millesime || ' IS ''Aire de triage, faisceau de voies de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Aire de triage, faisceau de voies de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Surface qui englobe l’ensemble des tronçons de voies, voies de garage, aiguillages permettant le tri des wagons et la composition des trains.
 Sélection  :  Les  faisceaux  de  voies  de  moins  de  25  m  de  large  sont  exclus  (voir  la  classe TRONÇON_VOIE_FERREE). 
 Modélisation  géométrique  :  Contour  du  faisceau,  en  s’appuyant  sur  les  voies  les  plus 
@@ -700,35 +853,43 @@ large est modélisé par un trou dans la surface.'';
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_aire_triage_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant de l’aire de triage.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant de l’aire de triage.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_aire_triage_bdt_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_aire_triage_bdt_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_aire_triage_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_aire_triage_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.B_VOIES_FERREES_ET_AUTRES
 ---- B.5.B_2 GARE 
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_gare_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_gare_bdt_')) = 'n_gare_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_gare_bdt';
+	tb_index := array['id'];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_gare_bdt_' || emprise || '_' || millesime || ' IS '' Gares ferroviaires de voyageurs de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS '' Gares ferroviaires de voyageurs de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Bâtiment  servant  à  l’accueil,  à  l’embarquement  et  au  débarquement  des voyageurs en train. 
 Remarque :  Ces  bâtiments  sont  également  présents  dans  la  classe  des bâtiments fonctionnels BATI_REMARQUABLE (catégorie transport, nature gare).
 Modélisation géométrique : Voir chapitre sur la modélisation des bâtiments en général § 8.1.'';
@@ -737,35 +898,46 @@ Modélisation géométrique : Voir chapitre sur la modélisation des bâtiments 
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_gare_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant de l’aire de triage.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant de l’aire de triage.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_gare_bdt_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_gare_bdt_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_gare_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_gare_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.B_VOIES_FERREES_ET_AUTRES
 ---- B.5.B_3 TOPONYME_FERRE 
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_toponyme_ferre_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_toponyme_ferre_bdt_')) = 'n_toponyme_ferre_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_toponyme_ferre_bdt';
+	tb_index := array['id',
+			'importance',
+			'nature'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_toponyme_ferre_bdt_' || emprise || '_' || millesime || ' IS ''Objet nommé du thème ferré de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Objet nommé du thème ferré de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Sélection : Tous les noms liés au réseau ferré et dont le nom figure sur la carte au 1 : 25 000 en service. 
 Modélisation géométrique : Centre du lieu nommé. '';
 	';
@@ -773,37 +945,47 @@ Modélisation géométrique : Centre du lieu nommé. '';
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_toponyme_ferre_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du toponyme.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du toponyme.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_toponyme_ferre_bdt_' || emprise || '_' || millesime || '.origin_nom IS ''Origine du toponyme'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_toponyme_ferre_bdt_' || emprise || '_' || millesime || '.nom IS ''Nom'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_toponyme_ferre_bdt_' || emprise || '_' || millesime || '.importance IS ''Importance du toponyme'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_toponyme_ferre_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature du toponyme'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_toponyme_ferre_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.origin_nom IS ''Origine du toponyme'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nom IS ''Nom'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.importance IS ''Importance du toponyme'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature du toponyme'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_toponyme_ferre_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.B_VOIES_FERREES_ET_AUTRES
 ---- B.5.B_4 TRANSPORT_CABLE 
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_transport_cable_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_transport_cable_bdt_')) = 'n_transport_cable_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_transport_cable_bdt';
+	tb_index := array['id',
+			'nature'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_transport_cable_bdt_' || emprise || '_' || millesime || ' IS ''Moyen de transport constitué d’un ou de plusieurs câbles porteurs de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Moyen de transport constitué d’un ou de plusieurs câbles porteurs de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Sélection : Tous les noms liés au réseau ferré et dont le nom figure sur la carte au 1 : 25 000 en service. 
 Modélisation géométrique : Centre du lieu nommé. '';
 	';
@@ -811,40 +993,55 @@ Modélisation géométrique : Centre du lieu nommé. '';
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_transport_cable_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du tronçon.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du tronçon.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_transport_cable_bdt_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_transport_cable_bdt_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_transport_cable_bdt_' || emprise || '_' || millesime || '.nature IS ''Type de voies ferrées selon leur fonction et leur état'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_transport_cable_bdt_' || emprise || '_' || millesime || '.z_min IS ''Altitude minimale de l’objet'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_transport_cable_bdt_' || emprise || '_' || millesime || '.z_max IS ''Altitude maximale de l’objet'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_transport_cable_bdt_' || emprise || '_' || millesime || '.z_ini IS ''Altitude du sommet initial du tronçon'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_transport_cable_bdt_' || emprise || '_' || millesime || '.z_fin IS ''Altitude du sommet final du tronçon'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_transport_cable_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Type de voies ferrées selon leur fonction et leur état'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_min IS ''Altitude minimale de l’objet'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_max IS ''Altitude maximale de l’objet'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_ini IS ''Altitude du sommet initial du tronçon'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_fin IS ''Altitude du sommet final du tronçon'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_transport_cable_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.B_VOIES_FERREES_ET_AUTRES
 ---- B.5.B_5 TRONCON_VOIE_FERREE
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_troncon_voie_ferree_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_troncon_voie_ferree_bdt_')) = 'n_troncon_voie_ferree_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_troncon_voie_ferree_bdt';
+	tb_index := array['id',
+			'nature',
+			'electrifie',
+			'franchisst',
+			'nb_voies',
+			'pos_sol',
+			'etat'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_troncon_voie_ferree_bdt_' || emprise || '_' || millesime || ' IS ''Portion de voie ferrée homogène de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Portion de voie ferrée homogène de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Portion de voie ferrée homogène pour l’ensemble des attributs qui la concernent. 
 Dans le cas d’une ligne composée de deux à quatre voies parallèles, l’ensemble des voies est modélisé par un seul objet.
 Sélection : Voir les différentes valeurs de l’attribut NATURE. 
@@ -855,44 +1052,54 @@ Modélisation géométrique : A l’axe de la ou de l’ensemble des voies de la
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_troncon_voie_ferree_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du tronçon.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du tronçon.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_troncon_voie_ferree_bdt_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_troncon_voie_ferree_bdt_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_troncon_voie_ferree_bdt_' || emprise || '_' || millesime || '.nature IS ''Type de voies ferrées selon leur fonction et leur état'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_troncon_voie_ferree_bdt_' || emprise || '_' || millesime || '.electrifie IS ''Énergie servant à la propulsion des locomotives'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_troncon_voie_ferree_bdt_' || emprise || '_' || millesime || '.franchisst IS ''Nature du franchissement'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_troncon_voie_ferree_bdt_' || emprise || '_' || millesime || '.largeur IS ''Largeur de la voie'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_troncon_voie_ferree_bdt_' || emprise || '_' || millesime || '.nb_voies IS ''Nombre de voies'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_troncon_voie_ferree_bdt_' || emprise || '_' || millesime || '.pos_sol IS ''Position par rapport au sol'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_troncon_voie_ferree_bdt_' || emprise || '_' || millesime || '.etat IS ''Indique si le tronçon est en construction'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_troncon_voie_ferree_bdt_' || emprise || '_' || millesime || '.z_ini IS ''Altitude du sommet initial du tronçon'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_troncon_voie_ferree_bdt_' || emprise || '_' || millesime || '.z_fin IS ''Altitude du sommet final du tronçon'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_troncon_voie_ferree_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Type de voies ferrées selon leur fonction et leur état'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.electrifie IS ''Énergie servant à la propulsion des locomotives'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.franchisst IS ''Nature du franchissement'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.largeur IS ''Largeur de la voie'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nb_voies IS ''Nombre de voies'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.pos_sol IS ''Position par rapport au sol'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.etat IS ''Indique si le tronçon est en construction'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_ini IS ''Altitude du sommet initial du tronçon'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_fin IS ''Altitude du sommet final du tronçon'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_troncon_voie_ferree_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.C_TRANSPORT_ENERGIE 
----- B.5.C_1 CONDUITE 
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
+---- B.5.C_1 CONDUITE
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_conduite_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_conduite_bdt_')) = 'n_conduite_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_conduite_bdt';
+	tb_index := array['id',
+			'pos_sol'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_conduite_bdt_' || emprise || '_' || millesime || ' IS ''Conduite utilisé pour le transport de matière première de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Conduite utilisé pour le transport de matière première de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Conduite (autre que canalisation d’eau) ou tapis roulant utilisés pour le transport de matière première (gaz, hydrocarbure, minerai, etc.) ou canalisation de nature inconnue.
 Sélection : Conduites aériennes issues de restitution, et conduites souterraines qui figurent sur la carte au 1 : 25 000. 
  
@@ -902,36 +1109,46 @@ Modélisation géométrique : À l’axe.'';
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_conduite_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du tronçon.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du tronçon.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_conduite_bdt_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_conduite_bdt_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_conduite_bdt_' || emprise || '_' || millesime || '.pos_sol IS ''Position par rapport au sol'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_conduite_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.pos_sol IS ''Position par rapport au sol'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_conduite_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.C_TRANSPORT_ENERGIE 
 ---- B.5.C_2 LIGNE_ELECTRIQUE
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_ligne_electrique_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_ligne_electrique_bdt_')) = 'n_ligne_electrique_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_ligne_electrique_bdt';
+	tb_index := array['id',
+			'voltage'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_ligne_electrique_bdt_' || emprise || '_' || millesime || ' IS ''Conduite utilisé pour le transport de matière première de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Conduite utilisé pour le transport de matière première de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Conduite (autre que canalisation d’eau) ou tapis roulant utilisés pour le transport de matière première (gaz, hydrocarbure, minerai, etc.) ou canalisation de nature inconnue.
 Sélection : Conduites aériennes issues de restitution, et conduites souterraines qui figurent sur la carte au 1 : 25 000. 
  
@@ -941,36 +1158,44 @@ Modélisation géométrique : À l’axe.'';
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_ligne_electrique_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du tronçon de la ligne électrique.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du tronçon de la ligne électrique.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_ligne_electrique_bdt_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_ligne_electrique_bdt_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_ligne_electrique_bdt_' || emprise || '_' || millesime || '.voltage IS ''Tension de la ligne électrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_ligne_electrique_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.voltage IS ''Tension de la ligne électrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_ligne_electrique_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.C_TRANSPORT_ENERGIE 
 ---- B.5.C_3 POSTE_TRANSFORMATION 
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_poste_transformation_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_poste_transformation_bdt_')) = 'n_poste_transformation_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_poste_transformation_bdt';
+	tb_index := array['id'];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_poste_transformation_bdt_' || emprise || '_' || millesime || ' IS ''Poste de transformation électrique de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Poste de transformation électrique de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Enceinte à l’intérieur de laquelle le courant transporté par une ligne électrique est transformé.
 Sélection  :  Tous  les  postes  de  transformation  situés  sur  le  réseau  de  lignes  à  haute  ou  très haute tension. 
  
@@ -980,35 +1205,43 @@ Modélisation  géométrique  :  Contour  du  poste,  au  sol  lorsque  le  post
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_poste_transformation_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du poste de transformation .
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du poste de transformation .
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_poste_transformation_bdt_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_poste_transformation_bdt_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_poste_transformation_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_poste_transformation_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.C_TRANSPORT_ENERGIE 
----- B.5.C.4 PYLONE 
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
+---- B.5.C.4 PYLONE
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_pylone_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_pylone_bdt_')) = 'n_pylone_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_pylone_bdt';
+	tb_index := array['id'];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_pylone_bdt_' || emprise || '_' || millesime || ' IS ''Support de ligne électrique. Pylône, portique de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Support de ligne électrique. Pylône, portique de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Sélection : Les pylônes et portiques soutenant des lignes de 63 KV et plus. 
  
 Modélisation géométrique : À l’axe et en haut du pylône. '';
@@ -1017,35 +1250,44 @@ Modélisation géométrique : À l’axe et en haut du pylône. '';
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_pylone_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du poste de transformation .
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du poste de transformation .
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pylone_bdt_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pylone_bdt_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pylone_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_pylone_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.D_HYDROGRAPHIE 
 ---- B.5.D.1 CANALISATION_EAU 
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_canalisation_eau_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_canalisation_eau_bdt_')) = 'n_canalisation_eau_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_canalisation_eau_bdt';
+	tb_index := array['id',
+			'pos_sol'];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_canalisation_eau_bdt_' || emprise || '_' || millesime || ' IS ''Canalisation d’eau de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Canalisation d’eau de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Sélection : Uniquement  les  canalisations  aériennes  et  celles  qui  figurent  sur  la  carte  au 1 : 25 000 en service. 
  
 Modélisation géométrique : À l’axe et sur le dessus de la canalisation.'';
@@ -1054,36 +1296,48 @@ Modélisation géométrique : À l’axe et sur le dessus de la canalisation.'';
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_canalisation_eau_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant de la canalisation.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant de la canalisation.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_canalisation_eau_bdt_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_canalisation_eau_bdt_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_canalisation_eau_bdt_' || emprise || '_' || millesime || '.pos_sol IS ''Position par rapport au sol'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_canalisation_eau_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.pos_sol IS ''Position par rapport au sol'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_canalisation_eau_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.D_HYDROGRAPHIE 
 ---- B.5.D.2 HYDRONYME
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_hydronyme_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_hydronyme_bdt_')) = 'n_hydronyme_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_hydronyme_bdt';
+	tb_index := array['id',
+			'origin_nom',
+			'importance',
+			'nature'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_hydronyme_bdt_' || emprise || '_' || millesime || ' IS ''Nom se rapportant à un détail hydrographique de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Nom se rapportant à un détail hydrographique de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Sélection : Tous les détails hydrographiques dont le nom figure sur la carte au 1 : 25 000. 
  
 Modélisation géométrique : Centre du détail nommé.'';
@@ -1092,37 +1346,46 @@ Modélisation géométrique : Centre du détail nommé.'';
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_hydronyme_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du toponyme.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du toponyme.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_hydronyme_bdt_' || emprise || '_' || millesime || '.origin_nom IS ''Origine du toponyme'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_hydronyme_bdt_' || emprise || '_' || millesime || '.nom IS ''Nom'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_hydronyme_bdt_' || emprise || '_' || millesime || '.importance IS ''Importance du toponyme'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_hydronyme_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature du toponyme'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_hydronyme_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.origin_nom IS ''Origine du toponyme'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nom IS ''Nom'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.importance IS ''Importance du toponyme'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature du toponyme'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_hydronyme_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.D_HYDROGRAPHIE 
 ---- B.5.D.3 POINT_EAU
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_point_eau_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_point_eau_bdt_')) = 'n_point_eau_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_point_eau_bdt';
+	tb_index := array['id',
+			'nature'];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_point_eau_bdt_' || emprise || '_' || millesime || ' IS ''Source, point de production d’eau ou point de stockage d’eau de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Source, point de production d’eau ou point de stockage d’eau de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Source (captée ou non), point de production d’eau (pompage, forage, puits,…) ou point de stockage d’eau de petite dimension (citerne, abreuvoir, lavoir, bassin).
 Sélection  :  Tous  les  points  d’eau  mentionnés  sur  la  carte  au  1 : 25 000,  sauf  ceux  dont  la disparition  est  attestée  par  l’examen  des  photographies  aériennes  ou  d’autres  sources d’information. 
 Les abreuvoirs, les puits et les lavoirs sont généralement exclus. 
@@ -1133,35 +1396,46 @@ Modélisation géométrique : Au centre. '';
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_point_eau_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du toponyme.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du toponyme.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_point_eau_bdt_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_point_eau_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature du point d’eau'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_point_eau_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature du point d’eau'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_point_eau_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.D_HYDROGRAPHIE 
 ---- B.5.D.4 RESERVOIR_EAU
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_reservoir_eau_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_point_eau_bdt_')) = 'n_reservoir_eau_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_reservoir_eau_bdt';
+	tb_index := array['id',
+			'nature',
+			'hauteur'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_reservoir_eau_bdt_' || emprise || '_' || millesime || ' IS ''Réservoir d’eau de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Réservoir d’eau de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Sélection : Tous les réservoirs de plus de 10 m de diamètre sont inclus, sauf les réservoirs d’eau non couverts (classe SURFACE_EAU), les citernes (classe POINT_EAU), et les bassins (classe SURFACE_EAU). 
  
 Modélisation géométrique : Contour extérieur du réservoir, à l’altitude de ce contour. 
@@ -1171,40 +1445,51 @@ Un  groupe  de  petits  réservoirs  (<10  m)  peut  être  modélisé  par  l�
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_reservoir_eau_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du réservoir.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du réservoir.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_reservoir_eau_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du réservoir d’eau'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_reservoir_eau_bdt_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_reservoir_eau_bdt_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_reservoir_eau_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature du réservoir d’eau'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_reservoir_eau_bdt_' || emprise || '_' || millesime || '.hauteur IS ''Hauteur du réservoir'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_reservoir_eau_bdt_' || emprise || '_' || millesime || '.z_min IS ''Altitude minimale du réservoir d’eau'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_reservoir_eau_bdt_' || emprise || '_' || millesime || '.z_max IS ''Altitude maximale du réservoir d’eau'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_reservoir_eau_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du réservoir d’eau'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature du réservoir d’eau'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.hauteur IS ''Hauteur du réservoir'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_min IS ''Altitude minimale du réservoir d’eau'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_max IS ''Altitude maximale du réservoir d’eau'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_reservoir_eau_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.D_HYDROGRAPHIE 
 ---- B.5.D.5 SURFACE_EAU
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_surface_eau_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_surface_eau_bdt_')) = 'n_surface_eau_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_surface_eau_bdt';
+	tb_index := array['id',
+			'nature',
+			'regime'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_surface_eau_bdt_' || emprise || '_' || millesime || ' IS ''Surface d’eau terrestre, naturelle ou artificielle de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Surface d’eau terrestre, naturelle ou artificielle de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Sélection : Toutes les surfaces d’eau de plus de 20 m de long sont incluses, ainsi que les cours d’eau de plus de 7,5 m de large. Les cours d’eau de plus de 5 m de large sont ajoutés lorsqu’ils sont situés entre deux surfaces d’eau, ou en prolongation d’une surface d’eau vers la source. 
  
 Tous les bassins maçonnés de plus de 10 m sont inclus. Les zones inondables périphériques (zone périphérique d’un lac de barrage, d’un étang à niveau variable) de plus de 20 m de large sont incluses (attribut REGIME = Intermittent). 
@@ -1222,38 +1507,52 @@ Dans  leur  partie  aval,  les  surfaces  d’eau  représentant  des  cours  d�
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_surface_eau_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant de la surface d’eau.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant de la surface d’eau.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_surface_eau_bdt_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_surface_eau_bdt_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_surface_eau_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature de la surface'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_surface_eau_bdt_' || emprise || '_' || millesime || '.regime IS ''Régime des eaux'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_surface_eau_bdt_' || emprise || '_' || millesime || '.z_moyen IS ''Altitude moyenne des points composants la surface'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_surface_eau_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature de la surface'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.regime IS ''Régime des eaux'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_moyen IS ''Altitude moyenne des points composants la surface'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_surface_eau_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.D_HYDROGRAPHIE 
 ---- B.5.D.6 TRONCON_COURS_EAU
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_troncon_cours_eau_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_troncon_cours_eau_bdt_')) = 'n_troncon_cours_eau_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_troncon_cours_eau_bdt';
+	tb_index := array['id',
+			'artif',
+			'fictif',
+			'franchisst',
+			'pos_sol',
+			'regime'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_troncon_cours_eau_bdt_' || emprise || '_' || millesime || ' IS ''Portion de cours d’eau, réel ou fictif, permanent ou temporaire de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Portion de cours d’eau, réel ou fictif, permanent ou temporaire de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Sélection : 
 Le réseau hydrographique composé des objets TRONCON_COURS_EAU est décrit de manière continue. 
 La continuité du réseau n’est toutefois pas toujours assurée dans les cas suivants : 
@@ -1278,43 +1577,53 @@ Fossé  :  Les  gros  fossés  de  plus  de  2  m  de  large  sont  inclus  lors
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_troncon_cours_eau_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du tronçon.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du tronçon.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_troncon_cours_eau_bdt_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_troncon_cours_eau_bdt_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_troncon_cours_eau_bdt_' || emprise || '_' || millesime || '.artif IS ''Artificiel'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_troncon_cours_eau_bdt_' || emprise || '_' || millesime || '.fictif IS ''Indique la nature fictive ou réel du tronçon'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_troncon_cours_eau_bdt_' || emprise || '_' || millesime || '.franchisst IS ''Nature du franchissement'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_troncon_cours_eau_bdt_' || emprise || '_' || millesime || '.nom IS ''Nom du cours d eau'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_troncon_cours_eau_bdt_' || emprise || '_' || millesime || '.pos_sol IS ''Position par rapport au sol'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_troncon_cours_eau_bdt_' || emprise || '_' || millesime || '.regime IS ''Régime des eaux'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_troncon_cours_eau_bdt_' || emprise || '_' || millesime || '.z_ini IS ''Altitude du sommet initial du tronçon'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_troncon_cours_eau_bdt_' || emprise || '_' || millesime || '.z_fin IS ''Altitude du sommet final du tronçon'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_troncon_cours_eau_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.artif IS ''Artificiel'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.fictif IS ''Indique la nature fictive ou réel du tronçon'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.franchisst IS ''Nature du franchissement'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nom IS ''Nom du cours d eau'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.pos_sol IS ''Position par rapport au sol'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.regime IS ''Régime des eaux'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_ini IS ''Altitude du sommet initial du tronçon'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_fin IS ''Altitude du sommet final du tronçon'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_troncon_cours_eau_eau_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.D_HYDROGRAPHIE 
 ---- B.5.D.7 TRONCON_LAISSE
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_troncon_laisse_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_troncon_laisse_bdt_')) = 'n_troncon_laisse_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_troncon_laisse_bdt';
+	tb_index := array['id',
+			'nature'];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_troncon_laisse_bdt_' || emprise || '_' || millesime || ' IS ''Limite de l’estran de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Limite de l’estran de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Sélection : Laisse des plus hautes mers et laisse des plus basses mers. 
  
 Avertissement :  la  laisse  des  plus  basses  mers  est  issue  à  l’origine  de  cartes  du  SHOM (Service Hydrographique et Océanographique de la Marine). Cette laisse n’est pas mise à jour, elle ne doit en aucun cas être utilisée pour la navigation. Les utilisateurs qui voudraient pratiquer des activités assimilables à la navigation sont priés de se reporter aux dernières documentations, notamment les cartes papier ou électroniques, du SHOM. 
@@ -1328,35 +1637,49 @@ Contrainte  de  modélisation  :  Les  deux  laisses  ne  se  croisent  pas.  El
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_troncon_laisse_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du tronçon de laisse.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du tronçon de laisse.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_troncon_laisse_bdt_' || emprise || '_' || millesime || '..prec_plani IS ''Précision planimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_troncon_laisse_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature de la surface'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_troncon_laisse_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '..prec_plani IS ''Précision planimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature de la surface'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_troncon_laisse_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.E_BATI 
 ---- B.5.E.1  BATI_INDIFFERENCIE
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_bati_indifferencie_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_bati_indifferencie_bdt_')) = 'n_bati_indifferencie_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_bati_indifferencie_bdt';
+	tb_index := array['id',
+			'origin_bat',
+			'hauteur',
+			'z_min',
+			'z_max'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_bati_indifferencie_bdt_' || emprise || '_' || millesime || ' IS ''Bâtiment ne possédant pas de fonction particulière de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Bâtiment ne possédant pas de fonction particulière de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Bâtiment ne possédant pas de fonction particulière pouvant être décrit dans les autres classes de bâtiments surfaciques  (voir 8.2, 8.3, 8.4) : bâtiments d’habitation, d’enseignement… (voir détails dans les § Sélection et Modélisation géométrique). 
 
 Sélection  :  Bâtiments  d’habitation,  bergeries,  bories,  bungalows,  bureaux,  chalets,  bâtiments d’enseignement,  garages  individuels,  bâtiments  hospitaliers,  immeubles  collectifs,  lavoirs couverts, musées, prisons, refuges, villages de vacances. 
@@ -1369,39 +1692,53 @@ Intégration du bâti du cadastre ou « unification » : L’objectif de l’uni
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_bati_indifferencie_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du bâtiment.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du bâtiment.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_bati_indifferencie_bdt_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_bati_indifferencie_bdt_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_bati_indifferencie_bdt_' || emprise || '_' || millesime || '.origin_bat IS ''Source du bâtiment'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_bati_indifferencie_bdt_' || emprise || '_' || millesime || '.hauteur IS ''Hauteur du bâtiment'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_bati_indifferencie_bdt_' || emprise || '_' || millesime || '.z_min IS ''Altitude minimale du bâtiment'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_bati_indifferencie_bdt_' || emprise || '_' || millesime || '.z_max IS ''Altitude maximale du bâtiment'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_bati_indifferencie_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.origin_bat IS ''Source du bâtiment'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.hauteur IS ''Hauteur du bâtiment'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_min IS ''Altitude minimale du bâtiment'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_max IS ''Altitude maximale du bâtiment'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_bati_indifferencie_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.E_BATI 
 ---- B.5.E.2  BATI_INDUSTRIEL
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_bati_industriel_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_bati_industriel_bdt_')) = 'n_bati_industriel_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_bati_industriel_bdt';
+	tb_index := array['id',
+			'origin_bat',
+			'nature',
+			'hauteur',
+			'z_min',
+			'z_max'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_bati_industriel_bdt_' || emprise || '_' || millesime || ' IS ''Bâtiment à caractère industriel, commercial ou agricole de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Bâtiment à caractère industriel, commercial ou agricole de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Bâtiment ne possédant pas de fonction particulière pouvant être décrit dans les autres classes de bâtiments surfaciques  (voir 8.2, 8.3, 8.4) : bâtiments d’habitation, d’enseignement… (voir détails dans les § Sélection et Modélisation géométrique). 
 
 Sélection  :
@@ -1419,40 +1756,54 @@ Intégration du bâti du cadastre ou « unification » : L’objectif de l’uni
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_bati_industriel_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du bâtiment.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du bâtiment.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_bati_industriel_bdt_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_bati_industriel_bdt_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_bati_industriel_bdt_' || emprise || '_' || millesime || '.origin_bat IS ''Source du bâtiment'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_bati_industriel_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature du bâtiment'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_bati_industriel_bdt_' || emprise || '_' || millesime || '.hauteur IS ''Hauteur du bâtiment'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_bati_industriel_bdt_' || emprise || '_' || millesime || '.z_min IS ''Altitude minimale du bâtiment'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_bati_industriel_bdt_' || emprise || '_' || millesime || '.z_max IS ''Altitude maximale du bâtiment'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_bati_industriel_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.origin_bat IS ''Source du bâtiment'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature du bâtiment'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.hauteur IS ''Hauteur du bâtiment'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_min IS ''Altitude minimale du bâtiment'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_max IS ''Altitude maximale du bâtiment'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_bati_industriel_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.E_BATI 
 ---- B.5.E.3  BATI_REMARQUABLE
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_bati_remarquable_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_bati_remarquable_bdt_')) = 'n_bati_remarquable_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_bati_remarquable_bdt';
+	tb_index := array['id',
+			'origin_bat',
+			'nature',
+			'hauteur',
+			'z_min',
+			'z_max'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_bati_remarquable_bdt_' || emprise || '_' || millesime || ' IS ''Bâtiment possédant une fonction, contrairement aux bâtiments indifférenciés, et dont la fonction est autre qu’industrielle de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Bâtiment possédant une fonction, contrairement aux bâtiments indifférenciés, et dont la fonction est autre qu’industrielle de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Bâtiment possédant une fonction, contrairement aux bâtiments indifférenciés, et dont la fonction est autre qu’industrielle (ces derniers sont regroupés dans la classe BATI_INDUSTRIEL). Il s’agit des bâtiments administratifs, religieux, sportifs, et relatifs au transport. 
 Sélection  :
 - Aérogare : Ensemble des bâtiments d’un aéroport réservés aux voyageurs et aux marchandises. 
@@ -1481,40 +1832,49 @@ Intégration du bâti du cadastre ou « unification » : L’objectif de l’uni
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_bati_remarquable_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du bâtiment.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du bâtiment.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_bati_remarquable_bdt_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_bati_remarquable_bdt_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_bati_remarquable_bdt_' || emprise || '_' || millesime || '.origin_bat IS ''Source du bâtiment'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_bati_remarquable_bdt_' || emprise || '_' || millesime || '.nature IS ''Permet de distinguer les bâtiments'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_bati_remarquable_bdt_' || emprise || '_' || millesime || '.hauteur IS ''Hauteur du bâtiment'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_bati_remarquable_bdt_' || emprise || '_' || millesime || '.z_min IS ''Altitude minimale du bâtiment'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_bati_remarquable_bdt_' || emprise || '_' || millesime || '.z_max IS ''Altitude maximale du bâtiment'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_bati_remarquable_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.origin_bat IS ''Source du bâtiment'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Permet de distinguer les bâtiments'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.hauteur IS ''Hauteur du bâtiment'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_min IS ''Altitude minimale du bâtiment'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_max IS ''Altitude maximale du bâtiment'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_bati_remarquable_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.E_BATI 
 ---- B.5.E.4 CIMETIERE
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_cimetiere_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_cimetiere_bdt_')) = 'n_cimetiere_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_cimetiere_bdt';
+	tb_index := array['id',
+			'nature'];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_cimetiere_bdt_' || emprise || '_' || millesime || ' IS ''Cimetière de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Cimetière de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Lieu où l’on enterre les morts. 
 Cimetière communal, islamique, israélite, ou militaire.
 
@@ -1531,36 +1891,47 @@ La  géométrie  d’un  cimetière  peut  être  partiellement  identique  à  
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_cimetiere_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du cimetiere.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du cimetiere.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_cimetiere_bdt_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_cimetiere_bdt_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_cimetiere_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature du cimetiere'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_cimetiere_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature du cimetiere'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_cimetiere_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.E_BATI 
 ---- B.5.E.5 CONSTRUCTION_LEGERE
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_construction_legere_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_construction_legere_bdt_')) = 'n_construction_legere_bdt_'
 	THEN
+--- Index
+nom_table := 'n_construction_legere_bdt';
+	tb_index := array['id',
+			'origin_bat',
+			'hauteur'
+			];
+nb_index := array_length(tb_index, 1);
+
+FOR i_index IN 1..nb_index LOOP
+	nom_index:=tb_index[i_index];
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_construction_legere_bdt_' || emprise || '_' || millesime || ' IS ''Structure légère de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+		CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+	';
+	EXECUTE(req);
+	RAISE NOTICE '%', req;
+END LOOP;
+---- Commentaire Table
+	req := '
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Structure légère de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Structure légère non attachée au sol par l’intermédiaire de fondations (cabanes, abris de jardins…) ou bâtiment quelconque ouvert sur au moins un côté (préaux, auvents, tribunes).
 
 Sélection : Baraquements, cabanes, granges, préaux, auvents, tribunes. 
@@ -1576,37 +1947,47 @@ Après  unification,  tous  les  bâtiments  qui  ont  été  appariés  avec  u
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_construction_legere_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant de la construction legère.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant de la construction legère.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_construction_legere_bdt_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_construction_legere_bdt_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_construction_legere_bdt_' || emprise || '_' || millesime || '.origin_bat IS ''Source de la construction'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_construction_legere_bdt_' || emprise || '_' || millesime || '.hauteur IS ''Hauteur du bâtiment'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_construction_legere_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.origin_bat IS ''Source de la construction'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.hauteur IS ''Hauteur du bâtiment'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_construction_legere_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.E_BATI 
 ---- B.5.E.6 CONSTRUCTION_LINEAIRE 
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_construction_lineaire_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_construction_lineaire_bdt_')) = 'n_construction_lineaire_bdt_'
 	THEN
+--- Index
+nom_table := 'n_construction_lineaire_bdt';
+tb_index := array['id',
+		'nature'
+		];
+nb_index := array_length(tb_index, 1);
+
+FOR i_index IN 1..nb_index LOOP
+	nom_index:=tb_index[i_index];
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_construction_lineaire_bdt_' || emprise || '_' || millesime || ' IS ''Construction linéaire de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+		CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+	';
+	EXECUTE(req);
+	RAISE NOTICE '%', req;
+END LOOP;
+---- Commentaire Table
+	req := '
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Construction linéaire de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Construction dont la forme générale est linéaire.Exemples : barrage, mur anti-bruit, ruines, etc.
 
 Sélection : Indifférencié, Barrage, Mur anti-bruit, Pont, Ruines, Quai.
@@ -1617,38 +1998,48 @@ Modélisation géométrique : Voir pour chaque valeur de l’attribut NATURE.'';
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_construction_lineaire_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant de la construction linéaire.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant de la construction linéaire.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_construction_lineaire_bdt_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_construction_lineaire_bdt_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_construction_lineaire_bdt_' || emprise || '_' || millesime || '.nature IS ''Permet de distinguer les constructions'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_construction_lineaire_bdt_' || emprise || '_' || millesime || '.z_min IS ''Altitude minimale du bâtiment'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_construction_lineaire_bdt_' || emprise || '_' || millesime || '.z_max IS ''Altitude maximale du bâtiment'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_construction_lineaire_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Permet de distinguer les constructions'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_min IS ''Altitude minimale du bâtiment'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_max IS ''Altitude maximale du bâtiment'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_construction_lineaire_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.E_BATI 
 ---- B.5.E.7  CONSTRUCTION_PONCTUELLE 
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_construction_ponctuelle_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_construction_ponctuelle_bdt_')) = 'n_construction_ponctuelle_bdt_'
 	THEN
+--- Index
+nom_table := 'n_construction_ponctuelle_bdt';
+tb_index := array['id',
+		'nature'
+		];
+nb_index := array_length(tb_index, 1);
+
+FOR i_index IN 1..nb_index LOOP
+	nom_index:=tb_index[i_index];
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_construction_ponctuelle_bdt_' || emprise || '_' || millesime || ' IS ''Construction ponctuelle de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+		CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+	';
+	EXECUTE(req);
+	RAISE NOTICE '%', req;
+END LOOP;
+---- Commentaire Table
+	req := '
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Construction ponctuelle de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Construction de faible emprise et de grande hauteur de plus de 50 m de haut et de moins de 20 m2.
 
 Sélection : Toutes les constructions de plus de 50 m de haut et de moins de 20 m2. 
@@ -1666,38 +2057,48 @@ Contrainte de modélisation : Dans le cas d’un clocher, d’un minaret ou d’
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_construction_ponctuelle_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant de la construction linéaire.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant de la construction linéaire.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_construction_ponctuelle_bdt_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_construction_ponctuelle_bdt_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_construction_ponctuelle_bdt_' || emprise || '_' || millesime || '.nature IS ''Permet de distinguer les constructions'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_construction_ponctuelle_bdt_' || emprise || '_' || millesime || '.z_min IS ''Altitude minimale de la construction linéaire'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_construction_ponctuelle_bdt_' || emprise || '_' || millesime || '.z_max IS ''Altitude maximale de la construction linéaire'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_construction_ponctuelle_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Permet de distinguer les constructions'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_min IS ''Altitude minimale de la construction linéaire'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_max IS ''Altitude maximale de la construction linéaire'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_construction_ponctuelle_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.E_BATI 
----- B.5.E.8 CONSTRUCTION_SURFACIQUE 
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
+---- B.5.E.8 CONSTRUCTION_SURFACIQUE
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_construction_surfacique_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_construction_surfacique_bdt_')) = 'n_construction_surfacique_bdt_'
 	THEN
+--- Index
+nom_table := 'n_construction_surfacique_bdt';
+tb_index := array['id',
+		'nature'
+		];
+nb_index := array_length(tb_index, 1);
+
+FOR i_index IN 1..nb_index LOOP
+	nom_index:=tb_index[i_index];
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_construction_surfacique_bdt_' || emprise || '_' || millesime || ' IS ''Ouvrage surfacique de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+		CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+	';
+	EXECUTE(req);
+	RAISE NOTICE '%', req;
+END LOOP;
+---- Commentaire Table
+	req := '
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Ouvrage surfacique de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Ouvrage de grande surface lié au franchissement d’un obstacle par une voie de communication, ou à l’aménagement d’une rivière ou d’un canal.
 
 Sélection :
@@ -1723,38 +2124,48 @@ Modélisation : Contours de la chambre d’écluse, de la cale ou de la pente de
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_construction_surfacique_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant de la construction surfacique.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant de la construction surfacique.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_construction_surfacique_bdt_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_construction_surfacique_bdt_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_construction_surfacique_bdt_' || emprise || '_' || millesime || '.nature IS ''Permet de distinguer les constructions surfaciques'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_construction_surfacique_bdt_' || emprise || '_' || millesime || '.z_min IS ''Altitude minimale de la construction surfacique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_construction_surfacique_bdt_' || emprise || '_' || millesime || '.z_max IS ''Altitude maximale de la construction surfacique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_construction_surfacique_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Permet de distinguer les constructions surfaciques'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_min IS ''Altitude minimale de la construction surfacique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_max IS ''Altitude maximale de la construction surfacique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_construction_surfacique_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.E_BATI 
 ---- B.5.E.9 PISTE_AERODROME
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_piste_aerodrome_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_piste_aerodrome_bdt_')) = 'n_piste_aerodrome_bdt_'
 	THEN
+--- Index
+nom_table := 'n_piste_aerodrome_bdt';
+tb_index := array['id',
+		'nature'
+		];
+nb_index := array_length(tb_index, 1);
+
+FOR i_index IN 1..nb_index LOOP
+	nom_index:=tb_index[i_index];
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_piste_aerodrome_bdt_' || emprise || '_' || millesime || ' IS ''Piste d’aérodrome de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+		CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+	';
+	EXECUTE(req);
+	RAISE NOTICE '%', req;
+END LOOP;
+---- Commentaire Table
+	req := '
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Piste d’aérodrome de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Aire  située  sur  un  aérodrome,  aménagée  afin  de  servir  au  roulement  des aéronefs, au décollage et à l’atterrissage, en dur ou en herbe.
 
 Sélection : Tous les aérodromes sont inclus, y compris les héliports, que la piste soit revêtue ou en herbe. 
@@ -1765,37 +2176,49 @@ Modélisation géométrique : Contour de l’ensemble des pistes et des aires de
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_piste_aerodrome_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant de la piste.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant de la piste.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_piste_aerodrome_bdt_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_piste_aerodrome_bdt_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_piste_aerodrome_bdt_' || emprise || '_' || millesime || '.nature IS ''Permet de distinguer les constructions surfaciques'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_piste_aerodrome_bdt_' || emprise || '_' || millesime || '.z_moyen IS ''Altitude moyenne de la piste'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_piste_aerodrome_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Permet de distinguer les constructions surfaciques'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_moyen IS ''Altitude moyenne de la piste'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_piste_aerodrome_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.E_BATI 
 ---- B.5.E.10 RESERVOIR
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_reservoir_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_reservoir_bdt_')) = 'n_reservoir_bdt_'
 	THEN
+	--- Index
+	nom_table := 'n_reservoir_bdt';
+	tb_index := array['id',
+		'origin_bat',
+		'nature',
+		'hauteur'
+		];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+	---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_reservoir_bdt_' || emprise || '_' || millesime || ' IS ''Réservoir de plus de 10m de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Réservoir de plus de 10m de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Réservoir (eau, matières industrielles,…) de plus de 10m de diamètre. 
 Remarque : les réservoirs d’eau et château d’eau sont également présents dans la classe RESERVOIR_EAU du thème hydrographique.
 
@@ -1812,40 +2235,49 @@ L’altitude correspondant au contour est une altitude toit médiane, calculée 
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_reservoir_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du reservoir.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du reservoir.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_reservoir_bdt_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_reservoir_bdt_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_reservoir_bdt_' || emprise || '_' || millesime || '.origin_bat IS ''Source du reservoir'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_reservoir_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature du reservoir'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_reservoir_bdt_' || emprise || '_' || millesime || '.hauteur IS ''Hauteur du reservoir'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_reservoir_bdt_' || emprise || '_' || millesime || '.z_min IS ''Altitude minimale du reservoir'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_reservoir_bdt_' || emprise || '_' || millesime || '.z_max IS ''Altitude maximale du reservoir'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_reservoir_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.origin_bat IS ''Source du reservoir'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature du reservoir'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.hauteur IS ''Hauteur du reservoir'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_min IS ''Altitude minimale du reservoir'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_max IS ''Altitude maximale du reservoir'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_reservoir_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.E_BATI 
----- B.5.E.11 TERRAIN_SPORT 
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
+---- B.5.E.11 TERRAIN_SPORT
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_terrain_sport_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_terrain_sport_bdt_')) = 'n_terrain_sport_bdt_'
 	THEN
+	--- Index
+	nom_table := 'n_terrain_sport_bdt';
+	tb_index := array['id',
+			'nature'];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+	---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_terrain_sport_bdt_' || emprise || '_' || millesime || ' IS ''Équipement sportif de plein air de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Équipement sportif de plein air de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Sélection :
 - Indifférencié : Grand terrain découvert servant à la pratique de sports collectifs tels  que  le  football,  le  rugby,  etc. :  plate-forme  multisports, terrain d’entraînement, terrain de football, terrain de rugby. 
 Plate-forme multisports : Seules les plates-formes aménagées (revêtement,  panneaux  de  baskets,  marquage  au  sol,…), réservées à la pratique sportive, équipées de plusieurs terrains de  jeux,  et  d’une  longueur  totale  de  50 m  au  moins  sont incluses. Les cours de récréation plus ou moins équipées pour la pratique sportive sont exclues. 
@@ -1870,37 +2302,46 @@ Modélisation géométrique : Voir les différentes valeurs de l’attribut NATU
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_terrain_sport_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du terrain de sport.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du terrain de sport.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_terrain_sport_bdt_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_terrain_sport_bdt_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_terrain_sport_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature du terrain de sport'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_terrain_sport_bdt_' || emprise || '_' || millesime || '.z_moyen IS ''Altitude moyenne du terrain de sport'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_terrain_sport_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature du terrain de sport'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_moyen IS ''Altitude moyenne du terrain de sport'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_terrain_sport_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.F_VEGETATION 
 ---- B.5.F.1 ZONE_VEGETATION
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_zone_vegetation_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_zone_vegetation_bdt_')) = 'n_zone_vegetation_bdt_'
 	THEN
+	--- Index
+	nom_table := 'n_zone_vegetation_bdt';
+	tb_index := array['id',
+			'nature'];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+	---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_zone_vegetation_bdt_' || emprise || '_' || millesime || ' IS ''Zone de végétation de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Zone de végétation de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Espace végétal naturel ou non différencié selon le couvert forestier.
 Sélection : Bois de plus de 500m2 ; forêts ouvertes, landes, vignes et vergers de plus de 5000m2. 
 L’exhaustivité ne pouvant être assurée en dessous de ces seuils, les sélections sont effectuées de façon à donner une vision représentative du paysage : 
@@ -1922,35 +2363,44 @@ Disponibilité : Dans un premier temps, l’attribut NATURE de la classe ZONE_VE
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_zone_vegetation_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du terrain de sport.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du terrain de sport.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_zone_vegetation_bdt_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_zone_vegetation_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature du terrain de sport'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_zone_vegetation_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature du terrain de sport'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_zone_vegetation_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.G_OROGRAPHIE  
 ---- B.5.G.1 LIGNE_OROGRAPHIQUE 
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_ligne_orographique_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_ligne_orographique_bdt_')) = 'n_ligne_orographique_bdt_'
 	THEN
+	--- Index
+	nom_table := 'n_ligne_orographique_bdt';
+	tb_index := array['id',
+			'nature'];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+	---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_ligne_orographique_bdt_' || emprise || '_' || millesime || ' IS ''Ligne de rupture de pente artificielle de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Ligne de rupture de pente artificielle de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Sélection : Voir chaque valeur de l’attribut NATURE. 
 
 Levée 
@@ -1986,38 +2436,50 @@ Modélisation  géométrique  :  Ligne  de  rupture  de  pente  amont  (la  limi
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_ligne_orographique_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant de la ligne orographique.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant de la ligne orographique.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_ligne_orographique_bdt_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_ligne_orographique_bdt_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_ligne_orographique_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature de la ligne de rupture de pente'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_ligne_orographique_bdt_' || emprise || '_' || millesime || '.z_min IS ''Altitude minimale de la ligne orographique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_ligne_orographique_bdt_' || emprise || '_' || millesime || '.z_max IS ''Altitude maximale de la ligne orographique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_ligne_orographique_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_alti IS ''Précision altimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature de la ligne de rupture de pente'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_min IS ''Altitude minimale de la ligne orographique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.z_max IS ''Altitude maximale de la ligne orographique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_ligne_orographique_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.G_OROGRAPHIE  
 ---- B.5.G.2 ORONYME
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_oronyme_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_oronyme_bdt_')) = 'n_oronyme_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_oronyme_bdt';
+	tb_index := array['id',
+		'origin_nom',
+		'importance',
+		'nature'
+		];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_oronyme_bdt_' || emprise || '_' || millesime || ' IS ''Détail du relief portant un nom de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Détail du relief portant un nom de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Sélection :  Tous  les  détails  orographiques  dont  le  nom  figure  sur  la  carte  au  1 : 25 000  en  service.
 - Cap : Prédominance dans le contour d’une côte : cap, pointe, promontoire.
 - Cirque : Dépression semi-circulaire, à bords raides.
@@ -2047,37 +2509,45 @@ Modélisation géométrique : Centre du détail nommé.'';
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_oronyme_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du toponyme.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du toponyme.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_oronyme_bdt_' || emprise || '_' || millesime || '.origin_nom IS ''Origine du toponyme'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_oronyme_bdt_' || emprise || '_' || millesime || '.nom IS ''Nom du toponyme'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_oronyme_bdt_' || emprise || '_' || millesime || '.importance IS ''Importance du toponyme'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_oronyme_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature du toponyme'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_oronyme_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.origin_nom IS ''Origine du toponyme'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nom IS ''Nom du toponyme'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.importance IS ''Importance du toponyme'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature du toponyme'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_oronyme_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.H_ADMINISTRATIF  
 ---- B.5.H.1 ARRONDISSEMENT
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_arondissement_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_arondissement_bdt_')) = 'n_arondissement_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_arondissement_bdt';
+	tb_index := array['id'];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_arondissement_bdt_' || emprise || '_' || millesime || ' IS ''Arrondissement municipal pour Lyon, Paris & Marseille de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Arrondissement municipal pour Lyon, Paris & Marseille de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Arrondissement municipal: subdivision administrative de certaines communes.
 Les arrondissements municipaux sont gérés par l’INSEE comme des communes.
 
@@ -2089,36 +2559,50 @@ l’origine   de   la   donnée   n’est   pas   la   même   pour   ces   deux
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_arondissement_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant de l’arrondissement.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant de l’arrondissement.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_arondissement_bdt_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_arondissement_bdt_' || emprise || '_' || millesime || '.nom IS ''Nom de l’arrondissement'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_arondissement_bdt_' || emprise || '_' || millesime || '.code_insee IS ''Code Insee'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_arondissement_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nom IS ''Nom de l’arrondissement'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.code_insee IS ''Code Insee'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_arondissement_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.H_ADMINISTRATIF  
 ---- B.5.H.2 CHEF_LIEU
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_chef_lieu_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_chef_lieu_bdt_')) = 'n_chef_lieu_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_chef_lieu_bdt';
+	tb_index := array['id',
+		'id_com',
+		'origin_nom',
+		'nature',
+		'nom',
+		'importance'
+		];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_chef_lieu_bdt_' || emprise || '_' || millesime || ' IS ''Chef-lieu de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Chef-lieu de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Centre de la zone d’habitat dans laquelle se trouve la mairie de la commune. 
 Dans certains cas, le chef-lieu n’est pas dans la commune.'';
 	';
@@ -2126,38 +2610,53 @@ Dans certains cas, le chef-lieu n’est pas dans la commune.'';
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_chef_lieu_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du chef-lieu.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du chef-lieu.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_chef_lieu_bdt_' || emprise || '_' || millesime || '.id_com IS ''Identifiant de la commune à laquelle se rapporte le chef-lieu'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_chef_lieu_bdt_' || emprise || '_' || millesime || '.origin_nom IS ''Origine du toponyme'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_chef_lieu_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature du chef lieu (commune, canton, préfecture, sous-préfecture)'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_chef_lieu_bdt_' || emprise || '_' || millesime || '.nom IS ''Nom du chef lieu'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_chef_lieu_bdt_' || emprise || '_' || millesime || '.importance IS ''Importance'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_chef_lieu_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id_com IS ''Identifiant de la commune à laquelle se rapporte le chef-lieu'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.origin_nom IS ''Origine du toponyme'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature du chef lieu (commune, canton, préfecture, sous-préfecture)'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nom IS ''Nom du chef lieu'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.importance IS ''Importance'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_chef_lieu_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.H_ADMINISTRATIF  
 ---- B.5.H.3 COMMUNE
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_commune_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_commune_bdt_')) = 'n_commune_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_commune_bdt';
+	tb_index := array['id',
+		'code_insee',
+		'statut',
+		'arrondisst',
+		'depart',
+		'region',
+		'popul'
+		];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_commune_bdt_' || emprise || '_' || millesime || ' IS ''Commune de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Commune de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Plus  petite  subdivision  du  territoire,  administrée  par  un  maire,  des  adjoints  et  un  conseil municipal.
 
 Sélection : Toutes les communes sont retenues.
@@ -2167,41 +2666,53 @@ Remarque sur la modélisation géométrique : Les contours des communes de la BD
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_commune_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant de la commune.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant de la commune.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_commune_bdt_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_commune_bdt_' || emprise || '_' || millesime || '.nom IS ''Nom de la commune'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_commune_bdt_' || emprise || '_' || millesime || '.code_insee IS ''Code Insee de la commune'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_commune_bdt_' || emprise || '_' || millesime || '.statut IS ''Statut de la commune'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_commune_bdt_' || emprise || '_' || millesime || '.arrondisst IS ''Nom de l’arrondissement de rattachement'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_commune_bdt_' || emprise || '_' || millesime || '.depart IS ''Nom du département de rattachement'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_commune_bdt_' || emprise || '_' || millesime || '.region IS ''Nom de la région de rattachement'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_commune_bdt_' || emprise || '_' || millesime || '.popul IS ''Population de la commune'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_commune_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.prec_plani IS ''Précision planimétrique'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nom IS ''Nom de la commune'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.code_insee IS ''Code Insee de la commune'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.statut IS ''Statut de la commune'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.arrondisst IS ''Nom de l’arrondissement de rattachement'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.depart IS ''Nom du département de rattachement'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.region IS ''Nom de la région de rattachement'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.popul IS ''Population de la commune'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_commune_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.I_ZONE_ACTIVITE  
 ---- B.5.I.1 PAI_ADMINISTRATIF_MILITAIRE
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_pai_administratif_militaire_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_pai_administratif_militaire_bdt_')) = 'n_pai_administratif_militaire_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_pai_administratif_militaire_bdt';
+	tb_index := array['id',
+			'origine',
+			'nature',
+			'importance'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_pai_administratif_militaire_bdt_' || emprise || '_' || millesime || ' IS ''Point d’intérêt administratif ou militaire de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Point d’intérêt administratif ou militaire de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Désignation d’un  établissement,  site  ou  zone  ayant  un  caractère  public  ou  administratif ou militaire.
 
 Sélection : Voir les différentes valeurs de l’attribut NATURE : 
@@ -2245,37 +2756,49 @@ Commentaires : La  prise  en  compte  de  toute  institution  ou  organisme  exc
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_administratif_militaire_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du PAI.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du PAI.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_administratif_militaire_bdt_' || emprise || '_' || millesime || '.origine IS ''Origine du PAI'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_administratif_militaire_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_administratif_militaire_bdt_' || emprise || '_' || millesime || '.toponyme IS ''Nom'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_administratif_militaire_bdt_' || emprise || '_' || millesime || '.importance IS ''Importance du toponyme'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_administratif_militaire_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.origine IS ''Origine du PAI'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.toponyme IS ''Nom'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.importance IS ''Importance du toponyme'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_pai_administratif_militaire_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.I_ZONE_ACTIVITE  
 ---- B.5.I.2 PAI_CULTURE_LOISIRS
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_pai_culture_loisirs_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_pai_culture_loisirs_bdt_')) = 'n_pai_culture_loisirs_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_pai_culture_loisirs_bdt';
+	tb_index := array['id',
+			'origine',
+			'nature',
+			'importance'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_pai_culture_loisirs_bdt_' || emprise || '_' || millesime || ' IS ''Point d’intérêt culture ou loisir de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Point d’intérêt culture ou loisir de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Désignation  d’un  établissement  ou  lieu  spécialement  aménagé  pour  une  activité  culturelle, touristique ou de loisirs
 
 Sélection : Voir les différentes valeurs de l’attribut NATURE :  
@@ -2312,37 +2835,49 @@ Commentaires : La  prise  en  compte  de  toute  institution  ou  organisme  exc
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_culture_loisirs_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du PAI.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du PAI.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_culture_loisirs_bdt_' || emprise || '_' || millesime || '.origine IS ''Origine du PAI'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_culture_loisirs_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_culture_loisirs_bdt_' || emprise || '_' || millesime || '.toponyme IS ''Nom'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_culture_loisirs_bdt_' || emprise || '_' || millesime || '.importance IS ''Importance du toponyme'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_culture_loisirs_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.origine IS ''Origine du PAI'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.toponyme IS ''Nom'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.importance IS ''Importance du toponyme'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_pai_culture_loisirs_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.I_ZONE_ACTIVITE  
 ---- B.5.I.3 PAI_ESPACE_NATUREL
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_pai_espace_naturel_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_pai_espace_naturel_bdt_')) = 'n_pai_espace_naturel_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_pai_espace_naturel_bdt';
+	tb_index := array['id',
+			'origine',
+			'nature',
+			'importance'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_pai_espace_naturel_bdt_' || emprise || '_' || millesime || ' IS ''Point d’intérêt espace naturel de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Point d’intérêt espace naturel de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Désignation  d’un  lieu-dit  non  habité  dont  le  nom  se  rapporte  ni  à  un  détail  orographique ni à un détail hydrographique.
 
 Sélection : Voir les différentes valeurs de l’attribut NATURE : 
@@ -2364,37 +2899,49 @@ Commentaires : La  prise  en  compte  de  toute  institution  ou  organisme  exc
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_espace_naturel_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du PAI.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du PAI.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_espace_naturel_bdt_' || emprise || '_' || millesime || '.origine IS ''Origine du PAI'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_espace_naturel_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_espace_naturel_bdt_' || emprise || '_' || millesime || '.toponyme IS ''Nom'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_espace_naturel_bdt_' || emprise || '_' || millesime || '.importance IS ''Importance du toponyme'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_espace_naturel_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.origine IS ''Origine du PAI'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.toponyme IS ''Nom'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.importance IS ''Importance du toponyme'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_pai_espace_naturel_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.I_ZONE_ACTIVITE  
 ---- B.5.I.4 PAI_GESTION_EAUX
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_pai_gestion_eaux_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_pai_gestion_eaux_bdt_')) = 'n_pai_gestion_eaux_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_pai_gestion_eaux_bdt';
+	tb_index := array['id',
+			'origine',
+			'nature',
+			'importance'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_pai_gestion_eaux_bdt_' || emprise || '_' || millesime || ' IS ''Point d’intérêt pour la gestion de l’eau de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Point d’intérêt pour la gestion de l’eau de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Désignation d’une construction ou site liés à l’approvisionnement, au traitement de l’eau pour différents besoins (agricole, industriel, consommation) ou à l’épuration des eaux usées avant rejet dans la nature.
 
 Sélection : Voir les différentes valeurs de l’attribut NATURE : 
@@ -2414,37 +2961,49 @@ Commentaires : La  prise  en  compte  de  toute  institution  ou  organisme  exc
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_gestion_eaux_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du PAI.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du PAI.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_gestion_eaux_bdt_' || emprise || '_' || millesime || '.origine IS ''Origine du PAI'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_gestion_eaux_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_gestion_eaux_bdt_' || emprise || '_' || millesime || '.toponyme IS ''Nom'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_gestion_eaux_bdt_' || emprise || '_' || millesime || '.importance IS ''Importance du toponyme'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_gestion_eaux_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.origine IS ''Origine du PAI'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.toponyme IS ''Nom'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.importance IS ''Importance du toponyme'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_pai_gestion_eaux_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.I_ZONE_ACTIVITE  
 ---- B.5.I.5 PAI_HYDROGRAPHIE
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_pai_hydrographie_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_pai_gestion_eaux_bdt_')) = 'n_pai_hydrographie_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_pai_hydrographie_bdt';
+	tb_index := array['id',
+			'origine',
+			'nature',
+			'importance'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_pai_hydrographie_bdt_' || emprise || '_' || millesime || ' IS ''Point d’intérêt hydrographique de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Point d’intérêt hydrographique de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Désignation se rapportant à un détail hydrographique.
 
 Sélection : Voir les différentes valeurs de l’attribut NATURE : 
@@ -2469,37 +3028,49 @@ Commentaires : La  prise  en  compte  de  toute  institution  ou  organisme  exc
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_hydrographie_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du PAI.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du PAI.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_hydrographie_bdt_' || emprise || '_' || millesime || '.origine IS ''Origine du PAI'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_hydrographie_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_hydrographie_bdt_' || emprise || '_' || millesime || '.toponyme IS ''Nom'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_hydrographie_bdt_' || emprise || '_' || millesime || '.importance IS ''Importance du toponyme'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_hydrographie_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.origine IS ''Origine du PAI'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.toponyme IS ''Nom'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.importance IS ''Importance du toponyme'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_pai_hydrographie_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.I_ZONE_ACTIVITE  
 ---- B.5.I.6 PAI_INDUSTRIEL_COMMERCIAL
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_pai_industriel_commercial_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_pai_industriel_commercial_bdt_')) = 'n_pai_industriel_commercial_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_pai_industriel_commercial_bdt';
+	tb_index := array['id',
+			'origine',
+			'nature',
+			'importance'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_pai_industriel_commercial_bdt_' || emprise || '_' || millesime || ' IS ''Point d’intérêt industriel et commercial de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Point d’intérêt industriel et commercial de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Désignation d’un bâtiment, site ou zone à caractère industriel ou commercial.
 
 Sélection : Voir les différentes valeurs de l’attribut NATURE : 
@@ -2538,37 +3109,49 @@ Commentaires : La  prise  en  compte  de  toute  institution  ou  organisme  exc
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_industriel_commercial_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du PAI.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du PAI.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_industriel_commercial_bdt_' || emprise || '_' || millesime || '.origine IS ''Origine du PAI'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_industriel_commercial_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_industriel_commercial_bdt_' || emprise || '_' || millesime || '.toponyme IS ''Nom'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_industriel_commercial_bdt_' || emprise || '_' || millesime || '.importance IS ''Importance du toponyme'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_industriel_commercial_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.origine IS ''Origine du PAI'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.toponyme IS ''Nom'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.importance IS ''Importance du toponyme'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_pai_industriel_commercial_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.I_ZONE_ACTIVITE  
 ---- B.5.I.7 PAI_OROGRAPHIE
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_pai_orographie_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_pai_orographie_bdt_')) = 'n_pai_orographie_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_pai_orographie_bdt';
+	tb_index := array['id',
+			'origine',
+			'nature',
+			'importance'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_pai_orographie_bdt_' || emprise || '_' || millesime || ' IS ''Point d’intérêt orographique de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Point d’intérêt orographique de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Désignation d’un détail du relief.
 
 Sélection : Voir les différentes valeurs de l’attribut NATURE : 
@@ -2603,37 +3186,49 @@ Commentaires : La  prise  en  compte  de  toute  institution  ou  organisme  exc
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_orographie_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du PAI.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du PAI.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_orographie_bdt_' || emprise || '_' || millesime || '.origine IS ''Origine du PAI'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_orographie_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_orographie_bdt_' || emprise || '_' || millesime || '.toponyme IS ''Nom'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_orographie_bdt_' || emprise || '_' || millesime || '.importance IS ''Importance du toponyme'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_orographie_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.origine IS ''Origine du PAI'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.toponyme IS ''Nom'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.importance IS ''Importance du toponyme'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_pai_orographie_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.I_ZONE_ACTIVITE  
 ---- B.5.I.8 PAI_RELIGIEUX
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_pai_religieux_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_pai_religieux_bdt_')) = 'n_pai_religieux_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_pai_religieux_bdt';
+	tb_index := array['id',
+			'origine',
+			'nature',
+			'importance'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_pai_religieux_bdt_' || emprise || '_' || millesime || ' IS ''Point d’intérêt religieu de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Point d’intérêt religieu de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Désignation d’un bâtiment réservé à la pratique d’une religion.
 
 Sélection : Voir les différentes valeurs de l’attribut NATURE : 
@@ -2654,37 +3249,49 @@ Commentaires : La  prise  en  compte  de  toute  institution  ou  organisme  exc
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_religieux_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du PAI.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du PAI.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_religieux_bdt_' || emprise || '_' || millesime || '.origine IS ''Origine du PAI'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_religieux_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_religieux_bdt_' || emprise || '_' || millesime || '.toponyme IS ''Nom'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_religieux_bdt_' || emprise || '_' || millesime || '.importance IS ''Importance du toponyme'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_religieux_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.origine IS ''Origine du PAI'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.toponyme IS ''Nom'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.importance IS ''Importance du toponyme'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_pai_religieux_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.I_ZONE_ACTIVITE  
 ---- B.5.I.9 PAI_SANTE
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_pai_sante_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_pai_sante_bdt_')) = 'n_pai_sante_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_pai_sante_bdt';
+	tb_index := array['id',
+			'origine',
+			'nature',
+			'importance'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_pai_sante_bdt_' || emprise || '_' || millesime || ' IS ''Point d’intérêt de santé de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Point d’intérêt de santé de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Désignation d’un établissement thermal ou de type hospitalier.
 
 Sélection : Voir les différentes valeurs de l’attribut NATURE : 
@@ -2704,37 +3311,49 @@ Commentaires : La  prise  en  compte  de  toute  institution  ou  organisme  exc
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_sante_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du PAI.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du PAI.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_sante_bdt_' || emprise || '_' || millesime || '.origine IS ''Origine du PAI'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_sante_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_sante_bdt_' || emprise || '_' || millesime || '.toponyme IS ''Nom'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_sante_bdt_' || emprise || '_' || millesime || '.importance IS ''Importance du toponyme'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_sante_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.origine IS ''Origine du PAI'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.toponyme IS ''Nom'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.importance IS ''Importance du toponyme'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_pai_sante_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.I_ZONE_ACTIVITE  
 ---- B.5.I.10 PAI_SCIENCE_ENSEIGNEMENT
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_pai_science_enseignement_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_pai_science_enseignement_bdt_')) = 'n_pai_science_enseignement_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_pai_science_enseignement_bdt';
+	tb_index := array['id',
+			'origine',
+			'nature',
+			'importance'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_pai_science_enseignement_bdt_' || emprise || '_' || millesime || ' IS ''Point d’intérêt de santé de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Point d’intérêt de santé de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Désignation d’un établissement d’enseignement ou de recherche.
 
 Sélection : Voir les différentes valeurs de l’attribut NATURE : 
@@ -2756,37 +3375,49 @@ Commentaires : La  prise  en  compte  de  toute  institution  ou  organisme  exc
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_science_enseignement_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du PAI.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du PAI.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_science_enseignement_bdt_' || emprise || '_' || millesime || '.origine IS ''Origine du PAI'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_science_enseignement_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_science_enseignement_bdt_' || emprise || '_' || millesime || '.toponyme IS ''Nom'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_science_enseignement_bdt_' || emprise || '_' || millesime || '.importance IS ''Importance du toponyme'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_science_enseignement_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.origine IS ''Origine du PAI'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.toponyme IS ''Nom'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.importance IS ''Importance du toponyme'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_pai_science_enseignement_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 	
 ---- B.5.I_ZONE_ACTIVITE  
 ---- B.5.I.11 PAI_SPORT
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_pai_sport_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_pai_sport_bdt_')) = 'n_pai_sport_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_pai_sport_bdt';
+	tb_index := array['id',
+			'origine',
+			'nature',
+			'importance'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_pai_sport_bdt_' || emprise || '_' || millesime || ' IS ''Point d’intérêt transport de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Point d’intérêt transport de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Désignation  d’un établissement ou lieu spécialement aménagé pour la pratique d’une ou de plusieurs activités sportives. 
 
 Sélection : Voir les différentes valeurs de l’attribut NATURE : 
@@ -2810,37 +3441,50 @@ Commentaires : La  prise  en  compte  de  toute  institution  ou  organisme  exc
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_sport_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du PAI.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du PAI.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_sport_bdt_' || emprise || '_' || millesime || '.origine IS ''Origine du PAI'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_sport_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_sport_bdt_' || emprise || '_' || millesime || '.toponyme IS ''Nom'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_sport_bdt_' || emprise || '_' || millesime || '.importance IS ''Importance du toponyme'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_sport_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.origine IS ''Origine du PAI'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.toponyme IS ''Nom'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.importance IS ''Importance du toponyme'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_pai_sport_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.I_ZONE_ACTIVITE  
 ---- B.5.I.12 PAI_TRANSPORT
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
 
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_pai_transport_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_pai_transport_bdt_')) = 'n_pai_transport_bdt_'
 	THEN
-	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_pai_transport_bdt_' || emprise || '_' || millesime || ' IS ''Point d’intérêt zone d’habitation de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+--- Index
+	nom_table := 'n_pai_transport_bdt';
+	tb_index := array['id',
+			'origine',
+			'nature',
+			'importance'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
+req := '
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Point d’intérêt zone d’habitation de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Désignation  d’un établissement ou lieu spécialement aménagé pour la pratique d’une ou de plusieurs activités sportives. 
 
 Sélection : Voir les différentes valeurs de l’attribut NATURE : 
@@ -2891,38 +3535,49 @@ Commentaires : La  prise  en  compte  de  toute  institution  ou  organisme  exc
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_transport_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du PAI.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du PAI.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_transport_bdt_' || emprise || '_' || millesime || '.origine IS ''Origine du PAI'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_transport_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_transport_bdt_' || emprise || '_' || millesime || '.toponyme IS ''Nom'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_transport_bdt_' || emprise || '_' || millesime || '.importance IS ''Importance du toponyme'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_transport_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.origine IS ''Origine du PAI'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.toponyme IS ''Nom'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.importance IS ''Importance du toponyme'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_pai_transport_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
-
 ---- B.5.I_ZONE_ACTIVITE  
----- B.5.I.13 PAI_ZONE_HABITATION 
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
+---- B.5.I.13 PAI_ZONE_HABITATION
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_pai_zone_habitation_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_pai_zone_habitation_bdt_')) = 'n_pai_zone_habitation_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_pai_zone_habitation_bdt';
+	tb_index := array['id',
+			'origine',
+			'nature',
+			'importance'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_pai_zone_habitation_bdt_' || emprise || '_' || millesime || ' IS ''Point d’intérêt du sport de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Point d’intérêt du sport de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Désignation  d’un établissement ou lieu spécialement aménagé pour la pratique d’une ou de plusieurs activités sportives. 
 
 Sélection : Voir les différentes valeurs de l’attribut NATURE : 
@@ -2943,37 +3598,48 @@ Commentaires : La  prise  en  compte  de  toute  institution  ou  organisme  exc
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_zone_habitation_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du PAI.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du PAI.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_zone_habitation_bdt_' || emprise || '_' || millesime || '.origine IS ''Origine du PAI'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_zone_habitation_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_zone_habitation_bdt_' || emprise || '_' || millesime || '.toponyme IS ''Nom'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_zone_habitation_bdt_' || emprise || '_' || millesime || '.importance IS ''Importance du toponyme'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_pai_zone_habitation_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.origine IS ''Origine du PAI'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.toponyme IS ''Nom'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.importance IS ''Importance du toponyme'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_pai_zone_habitation_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
  ---- B.5.I_ZONE_ACTIVITE  
 ---- B.5.I.14 SURFACE_ACTIVITE
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_surface_activite_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_surface_activite_bdt_')) = 'n_surface_activite_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_surface_activite_bdt';
+	tb_index := array['id',
+			'origine',
+			'categorie'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_surface_activite_bdt_' || emprise || '_' || millesime || ' IS ''Surface d’activité de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Surface d’activité de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Définition : Enceinte  d’un  équipement  public,  d’un  site  ou  d’une  zone  ayant  un  caractère administratif, culturel, sportif, industriel ou commercial. 
 
 Sélection : Les sites ayant perdu leur fonction administrative, industrielle ou commerciale sont exclus (ancienne école, ancienne carrière, …). 
@@ -2988,35 +3654,47 @@ Toute surface d’activité contient un point d’activité ou d’intérêt mai
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_surface_activite_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du PAI.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du PAI.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_surface_activite_bdt_' || emprise || '_' || millesime || '.origine IS ''Origine de la surface d’activité '';
-		COMMENT ON COLUMN ' || nom_schema || '.n_surface_activite_bdt_' || emprise || '_' || millesime || '.categorie IS ''Catégorie ou fonction de la surface d’activité '';
-		COMMENT ON COLUMN ' || nom_schema || '.n_surface_activite_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.origine IS ''Origine de la surface d’activité '';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.categorie IS ''Catégorie ou fonction de la surface d’activité '';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_pai_zone_habitation_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.T_TOPONYMES   
 ---- B.5.T.1 LIEU_DIT_HABITE
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_lieu_dit_habite_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_lieu_dit_habite_bdt_')) = 'n_lieu_dit_habite_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_lieu_dit_habite_bdt';
+	tb_index := array['id',
+			'origin_nom',
+			'nature',
+			'importance'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_lieu_dit_habite_bdt_' || emprise || '_' || millesime || ' IS ''Lieu-dit habité de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Lieu-dit habité de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Sélection : Voir les différentes valeurs de l’attribut NATURE : 
 - Château : Château ou tour. Le lieu-dit, toujours nommé, peut ne pas être habité  ou  ne  plus  être  habité  mais  n’est  pas  totalement  en ruines. 
 - Grange : Construction  légère :  abri,  baraquement,  cabane,  grange, hangar. 
@@ -3029,37 +3707,49 @@ Sélection : Voir les différentes valeurs de l’attribut NATURE :
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_lieu_dit_habite_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du lieu-dit.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du lieu-dit.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_lieu_dit_habite_bdt_' || emprise || '_' || millesime || '.origin_nom IS ''Origine du lieu-dit'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_lieu_dit_habite_bdt_' || emprise || '_' || millesime || '.nom IS ''Nom du lieu-dit habité'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_lieu_dit_habite_bdt_' || emprise || '_' || millesime || '.importance IS ''Importance du lieu-dit'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_lieu_dit_habite_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature du lieu-dit'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_lieu_dit_habite_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.origin_nom IS ''Origine du lieu-dit'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nom IS ''Nom du lieu-dit habité'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.importance IS ''Importance du lieu-dit'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature du lieu-dit'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_lieu_dit_habite_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.T_TOPONYMES   
----- B.5.T.2 LIEU_DIT_NON_HABITE 
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
+---- B.5.T.2 LIEU_DIT_NON_HABITE
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_lieu_dit_non_habite_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_lieu_dit_non_habite_bdt_')) = 'n_lieu_dit_non_habite_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_lieu_dit_non_habite_bdt';
+	tb_index := array['id',
+			'origin_nom',
+			'nature',
+			'importance'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_lieu_dit_non_habite_bdt_' || emprise || '_' || millesime || ' IS ''Lieu-dit non habité de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Lieu-dit non habité de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Sélection : Voir les différentes valeurs de l’attribut NATURE : 
 - Barrage : Obstacle  artificiel  placé  en  travers  d’un  cours  d’eau :  barrage, écluse, vanne. 
 - Croix : Monument religieux : croix, calvaire, vierge, statue religieuse. 
@@ -3083,37 +3773,49 @@ Seuls  les  points  de  vue  aménagés  (table  d’orientation, bancs,…) son
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_lieu_dit_non_habite_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du lieu-dit.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du lieu-dit.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_lieu_dit_non_habite_bdt_' || emprise || '_' || millesime || '.origin_nom IS ''Origine du lieu-dit'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_lieu_dit_non_habite_bdt_' || emprise || '_' || millesime || '.nom IS ''Nom du lieu-dit habité'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_lieu_dit_non_habite_bdt_' || emprise || '_' || millesime || '.importance IS ''Importance du lieu-dit'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_lieu_dit_non_habite_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature du lieu-dit'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_lieu_dit_non_habite_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.origin_nom IS ''Origine du lieu-dit'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nom IS ''Nom du lieu-dit habité'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.importance IS ''Importance du lieu-dit'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature du lieu-dit'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_lieu_dit_non_habite_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 
 ---- B.5.T_TOPONYMES   
 ---- B.5.T.3 TOPONYME_DIVERS
----- Index
---	req :='
---	';
---	EXECUTE(req);
---	RAISE NOTICE '%', req;
-
----- Commentaire table
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_toponyme_divers_bdt_' || emprise || '_' || millesime INTO veriftable;
 	IF LEFT(veriftable,length ('n_toponyme_divers_bdt_')) = 'n_toponyme_divers_bdt_'
 	THEN
+--- Index
+	nom_table := 'n_toponyme_divers_bdt';
+	tb_index := array['id',
+			'origin_nom',
+			'nature',
+			'importance'
+			];
+	nb_index := array_length(tb_index, 1);
+
+	FOR i_index IN 1..nb_index LOOP
+		nom_index:=tb_index[i_index];
+		req := '
+			DROP INDEX IF EXISTS ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx;
+			CREATE INDEX ' || nom_table || '_' || emprise || '_' || millesime || '_' || nom_index || '_idx ON ' ||nom_schema|| '.' || nom_table || '_' || emprise || '_' || millesime || ' USING btree (' || nom_index || ') TABLESPACE index;
+		';
+		EXECUTE(req);
+		RAISE NOTICE '%', req;
+	END LOOP;
+---- Commentaire Table
 	req := '
-		COMMENT ON TABLE ' || nom_schema || '.n_toponyme_divers_bdt_' || emprise || '_' || millesime || ' IS ''Toponyme divers de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
+		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' IS ''Toponyme divers de la BDTOPO® v2.2 pour le millésime ' || millesime || ' et l’emprise ' || emprise || '.
 Toponyme de nature diverse, désignant un bâtiment administratif, ou bien une école, un détail religieux, un établissement de santé…etc. 
 
 Voir les valeurs de l’attribut NATURE : 
@@ -3174,19 +3876,19 @@ Les  sites  dont  la  superficie  est  inférieure  à  5  ha  sont généraleme
 	RAISE NOTICE '%', req;
 ---- Commentaire colonnes
 	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.n_toponyme_divers_bdt_' || emprise || '_' || millesime || '.id IS ''Identifiant du lieu-dit.
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.id IS ''Identifiant du lieu-dit.
 Cet identifiant est unique. Il est stable d’une édition à l’autre.'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_toponyme_divers_bdt_' || emprise || '_' || millesime || '.origin_nom IS ''Origine du lieu-dit'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_toponyme_divers_bdt_' || emprise || '_' || millesime || '.nom IS ''Nom du lieu-dit habité'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_toponyme_divers_bdt_' || emprise || '_' || millesime || '.importance IS ''Importance du lieu-dit'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_toponyme_divers_bdt_' || emprise || '_' || millesime || '.nature IS ''Nature du lieu-dit'';
-		COMMENT ON COLUMN ' || nom_schema || '.n_toponyme_divers_bdt_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.origin_nom IS ''Origine du lieu-dit'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nom IS ''Nom du lieu-dit habité'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.importance IS ''Importance du lieu-dit'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.nature IS ''Nature du lieu-dit'';
+		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || '.geom IS ''Champs géométrique en Lambert93'';
 	';
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 
 ELSE
-	req :='La table ' || nom_schema || '.n_toponyme_divers_bdt_' || emprise || '_' || millesime || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || '_' || emprise || '_' || millesime || ' n’est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
@@ -3267,7 +3969,6 @@ n_toponyme_ferre_bdt_ddd_aaaa
 
 amélioration à faire :
 ---- B.3 Ajout de la clef primaire sauf si doublon d''identifiant
----- B.4 Ajout des index attributaires
 ---- ajout d''un test de presence du champs gid
 
-dernière MAJ : 24/09/2018';
+dernière MAJ : 25/09/2018';
