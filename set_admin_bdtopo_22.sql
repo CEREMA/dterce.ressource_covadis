@@ -74,8 +74,12 @@ n_toponyme_ferre_bdt_ddd_aaaa
 
 
 amélioration à faire :
----- B.3 Ajout de la clef primaire sauf si doublon d'identifiant
----- ajout d'un test de presence du champs gid
+---- B.3 Ajout de la clef primaire sauf si doublon d’identifiant
+erreur : 
+ALTER TABLE w_adl.n_troncon_cours_eau_bdt_039_2018 ADD CONSTRAINT n_troncon_cours_eau_bdt_039_2018_pkey PRIMARY KEY (id);
+Sur la fonction en cours de travail : Détail :Key (id)=(TRON_EAU0000002005948443) is duplicated.
+
+---- ajout d’un test de presence du champs gid
 
 dernière MAJ : 25/09/2018
 */
@@ -1414,7 +1418,7 @@ ELSE
 ---- B.5.D_HYDROGRAPHIE 
 ---- B.5.D.4 RESERVOIR_EAU
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_reservoir_eau_bdt_' || emprise || '_' || millesime INTO veriftable;
-	IF LEFT(veriftable,length ('n_point_eau_bdt_')) = 'n_reservoir_eau_bdt_'
+	IF LEFT(veriftable,length ('n_reservoir_eau_bdt_')) = 'n_reservoir_eau_bdt_'
 	THEN
 --- Index
 	nom_table := 'n_reservoir_eau_bdt';
@@ -3968,7 +3972,11 @@ n_toponyme_ferre_bdt_ddd_aaaa
 
 
 amélioration à faire :
----- B.3 Ajout de la clef primaire sauf si doublon d''identifiant
----- ajout d''un test de presence du champs gid
+---- B.3 Ajout de la clef primaire sauf si doublon d’identifiant
+erreur : 
+ALTER TABLE w_adl.n_troncon_cours_eau_bdt_039_2018 ADD CONSTRAINT n_troncon_cours_eau_bdt_039_2018_pkey PRIMARY KEY (id);
+Sur la fonction en cours de travail : Détail :Key (id)=(TRON_EAU0000002005948443) is duplicated.
+
+---- ajout d’un test de presence du champs gid
 
 dernière MAJ : 25/09/2018';
