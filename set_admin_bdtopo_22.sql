@@ -74,14 +74,14 @@ n_toponyme_ferre_bdt_ddd_aaaa
 
 
 amélioration à faire :
----- B.3 Ajout de la clef primaire sauf si doublon d’identifiant
+---- B.3 Ajout de la clef primaire sauf si doublon d’identifiant notamment n_troncon_cours_eau_bdt
 erreur : 
 ALTER TABLE w_adl.n_troncon_cours_eau_bdt_039_2018 ADD CONSTRAINT n_troncon_cours_eau_bdt_039_2018_pkey PRIMARY KEY (id);
 Sur la fonction en cours de travail : Détail :Key (id)=(TRON_EAU0000002005948443) is duplicated.
 
 ---- ajout d’un test de presence du champs gid
 
-dernière MAJ : 25/09/2018
+dernière MAJ : 28/09/2018
 */
 
 DECLARE
@@ -1418,7 +1418,7 @@ ELSE
 ---- B.5.D_HYDROGRAPHIE 
 ---- B.5.D.4 RESERVOIR_EAU
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_reservoir_eau_bdt_' || emprise || '_' || millesime INTO veriftable;
-	IF LEFT(veriftable,length ('n_reservoir_eau_bdt_')) = 'n_reservoir_eau_bdt_'
+	IF LEFT(veriftable,length ('n_point_eau_bdt_')) = 'n_reservoir_eau_bdt_'
 	THEN
 --- Index
 	nom_table := 'n_reservoir_eau_bdt';
@@ -2532,11 +2532,11 @@ ELSE
 
 ---- B.5.H_ADMINISTRATIF  
 ---- B.5.H.1 ARRONDISSEMENT
-SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_arondissement_bdt_' || emprise || '_' || millesime INTO veriftable;
-	IF LEFT(veriftable,length ('n_arondissement_bdt_')) = 'n_arondissement_bdt_'
+SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_arrondissement_bdt_' || emprise || '_' || millesime INTO veriftable;
+	IF LEFT(veriftable,length ('n_arrondissement_bdt_')) = 'n_arrondissement_bdt_'
 	THEN
 --- Index
-	nom_table := 'n_arondissement_bdt';
+	nom_table := 'n_arrondissement_bdt_';
 	tb_index := array['id'];
 	nb_index := array_length(tb_index, 1);
 
@@ -3900,8 +3900,9 @@ ELSE
 END; 
 $BODY$
   LANGUAGE plpgsql VOLATILE
-  COST 100;
-ALTER FUNCTION w_adl_delegue.set_adm_bdtopo_22(character varying, character varying, character varying)
+  COST 100
+  
+  ALTER FUNCTION w_adl_delegue.set_adm_bdtopo_22(character varying, character varying, character varying)
   OWNER TO postgres;
 COMMENT ON FUNCTION w_adl_delegue.set_adm_bdtopo_22(character varying, character varying, character varying) IS '[ADMIN - BDTOPO] - Administration d''un millesime de la BDTOPO 2.2 une fois son import réalisé et les couches mises à la COVADIS
 
@@ -3972,11 +3973,11 @@ n_toponyme_ferre_bdt_ddd_aaaa
 
 
 amélioration à faire :
----- B.3 Ajout de la clef primaire sauf si doublon d’identifiant
+---- B.3 Ajout de la clef primaire sauf si doublon d’identifiant notamment n_troncon_cours_eau_bdt
 erreur : 
 ALTER TABLE w_adl.n_troncon_cours_eau_bdt_039_2018 ADD CONSTRAINT n_troncon_cours_eau_bdt_039_2018_pkey PRIMARY KEY (id);
 Sur la fonction en cours de travail : Détail :Key (id)=(TRON_EAU0000002005948443) is duplicated.
 
 ---- ajout d’un test de presence du champs gid
 
-dernière MAJ : 25/09/2018';
+dernière MAJ : 28/09/2018';
