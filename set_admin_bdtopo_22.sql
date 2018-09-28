@@ -1418,7 +1418,7 @@ ELSE
 ---- B.5.D_HYDROGRAPHIE 
 ---- B.5.D.4 RESERVOIR_EAU
 SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = 'n_reservoir_eau_bdt_' || emprise || '_' || millesime INTO veriftable;
-	IF LEFT(veriftable,length ('n_point_eau_bdt_')) = 'n_reservoir_eau_bdt_'
+	IF LEFT(veriftable,length ('n_reservoir_eau_bdt_')) = 'n_reservoir_eau_bdt_'
 	THEN
 --- Index
 	nom_table := 'n_reservoir_eau_bdt';
