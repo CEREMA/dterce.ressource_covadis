@@ -1,4 +1,4 @@
-CREATE OR REPLACE FUNCTION w_adl_delegue.set_admin_bdparcellaire_12(source_schema text)
+CREATE OR REPLACE FUNCTION w_adl_delegue.set_adm_bdparcellaire_12(source_schema text)
   RETURNS void AS
 $BODY$
  
@@ -344,7 +344,7 @@ $BODY$
   LANGUAGE plpgsql VOLATILE
   COST 100;
 
-COMMENT ON FUNCTION w_adl_delegue.set_admin_bdparcellaire_12(text) IS '[ADMIN - BDPARCELLAIRE] - Mise en place des taches d''administration pour l''ensemble des départements de la BDParcellaire® version 1.2 de l''IGN classée dans un répertoire ad''hoc :
+COMMENT ON FUNCTION w_adl_delegue.set_adm_bdparcellaire_12(text) IS '[ADMIN - BDPARCELLAIRE] - Mise en place des taches d''administration pour l''ensemble des départements de la BDParcellaire® version 1.2 de l''IGN classée dans un répertoire ad''hoc :
 
 Taches réalisées :
 - pas le nommage COVADIS car réalisé lors du script d''import,
