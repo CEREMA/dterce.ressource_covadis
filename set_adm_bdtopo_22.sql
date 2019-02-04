@@ -122,7 +122,7 @@ FOR object IN
 		EXECUTE(req);
 		RAISE NOTICE '%', req;
 	END LOOP;
-
+/*
 ---- B.2 Ajout des contraintes :
 ---- Contraintes sur le type de géométrie et index spatiaux
 ---- 2D
@@ -144,7 +144,7 @@ LOOP
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 END LOOP; 
-
+*/
 ---- 'POINT' : Tables BDTOPO faites d'objets ponctuels
 tb_table := array[
 		'administratif_militaire',
