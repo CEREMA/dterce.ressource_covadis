@@ -4,7 +4,7 @@ CREATE OR REPLACE FUNCTION r_admin_express.set_adm_adminexpress_2(
     millesime character)
   RETURNS text AS
 $BODY$/*
-[ADMIN - ADMIN_EXPRESS V2] - Mise en place des taches d'administration pour un millesime d'ADMIN EXPRESS® de l'IGN selon le millesime et l'emprise :
+[ADMIN - ADMIN_EXPRESS] - Mise en place des taches d'administration pour un millesime d'ADMIN EXPRESS® de l'IGN selon le millesime et l'emprise :
 
 Taches réalisées :
 A - Re-nommage des tables
@@ -30,15 +30,18 @@ C.6 n_adm_exp_region_ddd_aaaa
 Tables concernées :
 amélioration à faire : option nommage COG en paramètre
 
-dernière MAJ : 11/02/2019
+dernière MAJ : 04/03/2019
 */
 DECLARE
 ---- déclaration variables  --
+
 object 		text; 			-- Liste des objets pour executer une boucle
 req		text;			-- requête à passer	
 attribut 	text; 			-- Liste des attributs de la table
 
+
 BEGIN
+
 ---- A - Re-nommage des tables :
 ---- A.1 - Nom non conforme :
 req :='
@@ -57,6 +60,7 @@ req :='
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
+
 
 ---- B. Optimisation de base sur l'ensemble des fichiers
 FOR object IN 
@@ -113,24 +117,45 @@ LOOP
 ---- B.4 Contraintes géométriques de la table
 ---- B.4.1 Ajout des contraintes sur le champs géométrie: 
 	req := '
+				ALTER TABLE ' || nom_schema || '.' || object || ' DROP CONSTRAINT IF EXISTS enforce_dims_geom;
 				ALTER TABLE ' || nom_schema || '.' || object || ' ADD CONSTRAINT enforce_dims_geom CHECK (ST_NDims(geom)=2);
+				ALTER TABLE ' || nom_schema || '.' || object || ' DROP CONSTRAINT IF EXISTS enforce_srid_geom;
 				ALTER TABLE ' || nom_schema || '.' || object || ' ADD CONSTRAINT enforce_srid_geom CHECK (ST_Srid(geom)=2154);
 				';
 	RAISE NOTICE '%', req;
 	EXECUTE(req);
 ---- B.4.2 CHECK (geometrytype(geom) :
 	SELECT type FROM public.geometry_columns WHERE f_table_schema = nom_schema AND f_table_name = object INTO attribut;
-		IF 	attribut = 'POLYGON' 			THEN 	req := 'ALTER TABLE ' || nom_schema || '.' || object || ' ADD CONSTRAINT enforce_geotype_geom CHECK (geometrytype(geom) = ''POLYGON''::text OR geom IS NULL);';
-			ELSEIF attribut = 'MULTIPOLYGON' 	THEN 	req := 'ALTER TABLE ' || nom_schema || '.' || object || ' ADD CONSTRAINT enforce_geotype_geom CHECK (geometrytype(geom) = ''MULTIPOLYGON''::text OR geom IS NULL);';
-			ELSEIF attribut = 'LINESTRING' 		THEN 	req := 'ALTER TABLE ' || nom_schema || '.' || object || ' ADD CONSTRAINT enforce_geotype_geom CHECK (geometrytype(geom) = ''LINESTRING''::text OR geom IS NULL);';
-			ELSEIF attribut = 'MULTILINESTRING' 	THEN 	req := 'ALTER TABLE ' || nom_schema || '.' || object || ' ADD CONSTRAINT enforce_geotype_geom CHECK (geometrytype(geom) = ''MULTILINESTRING''::text OR geom IS NULL);';
-			ELSEIF attribut = 'POINT' 		THEN	req := 'ALTER TABLE ' || nom_schema || '.' || object || ' ADD CONSTRAINT enforce_geotype_geom CHECK (geometrytype(geom) = ''POINT''::text OR geom IS NULL);';
-			ELSEIF attribut = 'MULTIPOINT' 		THEN 	req := 'ALTER TABLE ' || nom_schema || '.' || object || ' ADD CONSTRAINT enforce_geotype_geom CHECK (geometrytype(geom) = ''MULTIPOINT''::text OR geom IS NULL);';
+		IF 	attribut = 'POLYGON' 			THEN req := '
+						ALTER TABLE ' || nom_schema || '.' || object || ' DROP CONSTRAINT IF EXISTS enforce_geotype_geom;
+						ALTER TABLE ' || nom_schema || '.' || object || ' ADD CONSTRAINT enforce_geotype_geom CHECK (geometrytype(geom) = ''POLYGON''::text OR geom IS NULL);
+					';
+			ELSEIF attribut = 'MULTIPOLYGON' 	THEN req := '
+						ALTER TABLE ' || nom_schema || '.' || object || ' DROP CONSTRAINT IF EXISTS enforce_geotype_geom;
+						ALTER TABLE ' || nom_schema || '.' || object || ' ADD CONSTRAINT enforce_geotype_geom CHECK (geometrytype(geom) = ''MULTIPOLYGON''::text OR geom IS NULL);
+					';
+			ELSEIF attribut = 'LINESTRING' 		THEN req := '
+						ALTER TABLE ' || nom_schema || '.' || object || ' DROP CONSTRAINT IF EXISTS enforce_geotype_geom;
+						ALTER TABLE ' || nom_schema || '.' || object || ' ADD CONSTRAINT enforce_geotype_geom CHECK (geometrytype(geom) = ''LINESTRING''::text OR geom IS NULL);
+					';
+			ELSEIF attribut = 'MULTILINESTRING' 	THEN req := '
+						ALTER TABLE ' || nom_schema || '.' || object || ' DROP CONSTRAINT IF EXISTS enforce_geotype_geom;
+						ALTER TABLE ' || nom_schema || '.' || object || ' ADD CONSTRAINT enforce_geotype_geom CHECK (geometrytype(geom) = ''MULTILINESTRING''::text OR geom IS NULL);
+					';
+			ELSEIF attribut = 'POINT' 		THEN req := '
+						ALTER TABLE ' || nom_schema || '.' || object || ' DROP CONSTRAINT IF EXISTS enforce_geotype_geom;
+						ALTER TABLE ' || nom_schema || '.' || object || ' ADD CONSTRAINT enforce_geotype_geom CHECK (geometrytype(geom) = ''POINT''::text OR geom IS NULL);
+					';
+			ELSEIF attribut = 'MULTIPOINT' 		THEN req := '
+						ALTER TABLE ' || nom_schema || '.' || object || ' DROP CONSTRAINT IF EXISTS enforce_geotype_geom;
+						ALTER TABLE ' || nom_schema || '.' || object || ' ADD CONSTRAINT enforce_geotype_geom CHECK (geometrytype(geom) = ''MULTIPOINT''::text OR geom IS NULL);
+					';
 			ELSE 						req := 'SELECT current_time;';
 		END IF;
 		RAISE NOTICE '%', req;
 		EXECUTE(req);
 	
+
 ---- B.5 Ajout des index spatiaux et cluster
 	req := '
 		DROP INDEX IF EXISTS ' || nom_schema || '.' || object || '_geom_gist;
@@ -142,15 +167,10 @@ LOOP
 
 ---- B.6 Ajout des index attributaires non existants
 	FOR attribut IN
-		SELECT attnum
-			FROM pg_class as c, pg_attribute as a, pg_namespace as n
-			WHERE n.nspname = nom_schema
-				AND c.relname = object
-				AND a.attrelid = c.oid
-				AND n.oid = c.relnamespace
-				AND attnum > 0
-				AND relhasindex IS FALSE
-			ORDER BY attnum
+		SELECT COLUMN_NAME
+			FROM INFORMATION_SCHEMA.COLUMNS
+			WHERE TABLE_NAME = object
+			AND COLUMN_NAME != 'geom' AND COLUMN_NAME != 'the_geom'
 	LOOP
 			req := '
 				DROP INDEX IF EXISTS ' || nom_schema || '.' || object || '_' || attribut || '_idx;
@@ -163,7 +183,7 @@ LOOP
 ---- B.7 clés primaires sur le champs id
 			
 	req := '
-			ALTER TABLE ' || nom_schema || '.' || object || ' DROP CONSTRAINT IF EXISTS ' || object || '_pkey;
+			ALTER TABLE ' || nom_schema || '.' || object || ' DROP CONSTRAINT IF EXISTS ' || object || '_id_pkey;
 			ALTER TABLE ' || nom_schema || '.' || object || ' ADD CONSTRAINT ' || object || '_id_pkey PRIMARY KEY (id);
 	';
 	EXECUTE(req);
@@ -299,7 +319,7 @@ $BODY$
   COST 100;
 ALTER FUNCTION r_admin_express.set_adm_adminexpress_2(character varying, character, character)
   OWNER TO postgres;
-COMMENT ON FUNCTION r_admin_express.set_adm_adminexpress_2(character varying, character, character) IS '[ADMIN - ADMIN_EXPRESS V2] - Mise en place des taches d''administration pour un millesime d''ADMIN EXPRESS® de l''IGN selon le millesime et l''emprise :
+COMMENT ON FUNCTION r_admin_express.set_adm_adminexpress_2(character varying, character, character) IS '[ADMIN - ADMIN_EXPRESS] - Mise en place des taches d''administration pour un millesime d''ADMIN EXPRESS® de l''IGN selon le millesime et l''emprise :
 
 Taches réalisées :
 A - Re-nommage des tables
@@ -325,4 +345,4 @@ C.6 n_adm_exp_region_ddd_aaaa
 Tables concernées :
 amélioration à faire : option nommage COG en paramètre
 
-dernière MAJ : 11/02/2019';
+dernière MAJ : 04/03/2019';
