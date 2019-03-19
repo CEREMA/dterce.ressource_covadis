@@ -224,12 +224,6 @@ nom_table := 'n_ilots_anonymes_groupe_culture_' || emprise || '_' || millesime;
 	
 ---- C.2.3 Commentaires des colonnes
 	req :='
-	
-	    num_ilot character varying COLLATE pg_catalog."default",
-     character varying COLLATE pg_catalog."default",
-     character varying COLLATE pg_catalog."default",
-    nom_groupe_culture character varying COLLATE pg_catalog."default"
-	
 		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.num_ilot IS '' Identifiant de l’îlot, unique sur l’ensemble des données, obtenu par la concaténation du numéro de département sur 3 caractères (001, 055, 972, …) et d’un entier séparés par un tiret.'';
 		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_groupe_culture IS ''Code du groupe de cultures. Chaque code correspond à un nom de groupe de cultures (voir Annexe B).'';
 		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.surface_groupe_culture IS ''Surface du groupe de cultures, en hectares avec deux décimales.'';
