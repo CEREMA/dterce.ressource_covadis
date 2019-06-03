@@ -1,12 +1,13 @@
---CREATE SCHEMA w_adl_delegue;
---> Finish time	Sat May 18 09:55:41 CEST 2019
-
 CREATE OR REPLACE FUNCTION w_adl_delegue.set_adm_bdtopo_30(
-    emprise character varying,
-    millesime character varying,
-    projection integer DEFAULT 2154)
-  RETURNS void AS
-$BODY$
+	emprise character varying,
+	millesime character varying,
+	projection integer DEFAULT 2154)
+    RETURNS void
+    LANGUAGE 'plpgsql'
+
+    COST 100
+    VOLATILE 
+AS $BODY$
 /*
 [ADMIN - BDTOPO] - Administration d´un millesime de la BDTOPO 30 une fois son import réalisé
 
@@ -79,14 +80,13 @@ Tables concernées :
 	zone_d_habitation	
 	zone_de_vegetation	
 
-
 amélioration à faire :
----- B.5.1 Ajout de la clef primaire sauf si doublon d’identifiant notamment n_troncon_cours_eau_bdt
+---- B.5.1 Ajout de la clef primaire sauf si doublon didentifiant notamment n_troncon_cours_eau_bdt
 erreur : 
 ALTER TABLE r_bdtopo_2018.n_toponymie_bati_bdt_000_2018 ADD CONSTRAINT n_toponymie_bati_bdt_000_2018_pkey PRIMARY KEY;
 Sur la fonction en cours de travail : Détail :Key (cleabs_de_l_objet)=(CONSSURF0000002000088919) is duplicated..
 
-dernière MAJ : 30/05/2019
+dernière MAJ : 03/06/2019
 */
 
 declare
@@ -97,15 +97,16 @@ veriftable 					character varying;
 tb_toutestables				character varying[];	-- Toutes les tables
 nb_toutestables 			integer;				-- Nombre de tables --> normalement XX
 attribut 					character varying; 		-- Liste des attributs de la table
-typegeometrie 				character varying; 		-- "GeometryType" de la table
+typegeometrie 				text; 					-- "GeometryType" de la table
 
 BEGIN
 nom_schema:='r_bdtopo_' || millesime;
 
 ---- Référencement des tables à traiter
 tb_toutestables := array[
-	'adresse',
+	
 	'aerodrome',
+	'adresse',
 	'arrondissement',
 	'bassin_versant_topographique',
 	'batiment',
@@ -155,7 +156,7 @@ tb_toutestables := array[
 	'zone_de_vegetation'
 		];
 nb_toutestables := array_length(tb_toutestables, 1);
-/*
+
 ---- A. Déplacement et Renomage des tables
 req := '
 		CREATE SCHEMA ' || nom_schema || ';
@@ -176,12 +177,12 @@ FOR i_table IN 1..nb_toutestables LOOP
 	RAISE NOTICE '%', req;
 	
 	ELSE
-	req :='La table ' || nom_schema || '.' || nom_table || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || ' n est pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 END LOOP; 
-*/
+
 ---- B. Optimisation de toutes les tables
 FOR i_table IN 1..nb_toutestables LOOP
 	nom_table:='n_' || tb_toutestables[i_table] || '_bdt_' || emprise || '_' || millesime;
@@ -242,32 +243,19 @@ FOR i_table IN 1..nb_toutestables LOOP
 	EXECUTE(req);
 	RAISE NOTICE '%', req;
 ---- B.4.2 CHECK (geometrytype(geom)
+---- B.4.2.1 Création de la table pour lister les géométries disponible
+	req := '
+		CREATE TABLE public.a_supprimer AS (
+			SELECT GeometryType(geom) AS geomtype
+			FROM ' || nom_schema || '.' || nom_table || ' group by geomtype
+		);
+	';
+	EXECUTE(req);
+	RAISE NOTICE '%', req;
+
+---- B.4.2.2 CHECK (geometrytype(geom)
 	SELECT type FROM public.geometry_columns WHERE f_table_schema = nom_schema AND f_table_name = nom_table INTO attribut;
-		IF 	attribut = 'POLYGON' 			THEN req := '
-						ALTER TABLE ' || nom_schema || '.' || nom_table || ' DROP CONSTRAINT IF EXISTS enforce_geotype_geom;
-						ALTER TABLE ' || nom_schema || '.' || nom_table || ' ADD CONSTRAINT enforce_geotype_geom CHECK (geometrytype(geom) = ''POLYGON''::text);-- OR geom IS NULL);
-					';
-			ELSEIF attribut = 'MULTIPOLYGON' 	THEN req := '
-						ALTER TABLE ' || nom_schema || '.' || nom_table || ' DROP CONSTRAINT IF EXISTS enforce_geotype_geom;
-						ALTER TABLE ' || nom_schema || '.' || nom_table || ' ADD CONSTRAINT enforce_geotype_geom CHECK (geometrytype(geom) = ''MULTIPOLYGON''::text);-- OR geom IS NULL);
-					';
-			ELSEIF attribut = 'LINESTRING' 		THEN req := '
-						ALTER TABLE ' || nom_schema || '.' || nom_table || ' DROP CONSTRAINT IF EXISTS enforce_geotype_geom;
-						ALTER TABLE ' || nom_schema || '.' || nom_table || ' ADD CONSTRAINT enforce_geotype_geom CHECK (geometrytype(geom) = ''LINESTRING''::text);-- OR geom IS NULL);
-					';
-			ELSEIF attribut = 'MULTILINESTRING' 	THEN req := '
-						ALTER TABLE ' || nom_schema || '.' || nom_table || ' DROP CONSTRAINT IF EXISTS enforce_geotype_geom;
-						ALTER TABLE ' || nom_schema || '.' || nom_table || ' ADD CONSTRAINT enforce_geotype_geom CHECK (geometrytype(geom) = ''MULTILINESTRING''::text);-- OR geom IS NULL);
-					';
-			ELSEIF attribut = 'POINT' 		THEN req := '
-						ALTER TABLE ' || nom_schema || '.' || nom_table || ' DROP CONSTRAINT IF EXISTS enforce_geotype_geom;
-						ALTER TABLE ' || nom_schema || '.' || nom_table || ' ADD CONSTRAINT enforce_geotype_geom CHECK (geometrytype(geom) = ''POINT''::text);-- OR geom IS NULL);
-					';
-			ELSEIF attribut = 'MULTIPOINT' 		THEN req := '
-						ALTER TABLE ' || nom_schema || '.' || nom_table || ' DROP CONSTRAINT IF EXISTS enforce_geotype_geom;
-						ALTER TABLE ' || nom_schema || '.' || nom_table || ' ADD CONSTRAINT enforce_geotype_geom CHECK (geometrytype(geom) = ''MULTIPOINT''::text);-- OR geom IS NULL);
-					';
-			ELSEIF attribut = 'GEOMETRY' then SELECT GeometryType(geom) AS "GeometryType" FROM r_bdtopo_2018.n_adresse_bdt_000_2018 group by "GeometryType" INTO typegeometrie;
+		IF attribut = 'GEOMETRY' then SELECT geomtype FROM public.a_supprimer LIMIT 1 INTO typegeometrie;
 					IF 	typegeometrie = 'POLYGON' 			THEN req := '
 								ALTER TABLE ' || nom_schema || '.' || nom_table || ' DROP CONSTRAINT IF EXISTS enforce_geotype_geom;
 								ALTER TABLE ' || nom_schema || '.' || nom_table || ' ADD CONSTRAINT enforce_geotype_geom CHECK (geometrytype(geom) = ''POLYGON''::text);-- OR geom IS NULL);
@@ -292,10 +280,40 @@ FOR i_table IN 1..nb_toutestables LOOP
 								ALTER TABLE ' || nom_schema || '.' || nom_table || ' DROP CONSTRAINT IF EXISTS enforce_geotype_geom;
 								ALTER TABLE ' || nom_schema || '.' || nom_table || ' ADD CONSTRAINT enforce_geotype_geom CHECK (geometrytype(geom) = ''MULTIPOINT''::text);-- OR geom IS NULL);
 							';
-					else req := 'La valeur typegeometrie est <<' || typegeometrie || '>> ';
-			END IF;
-		req := 'La valeur attribut est <<' || attribut || '>> ';
+					else req := 'La valeur attribut est <<' || attribut || '>> et la valeur typegeometrie est <<' || typegeometrie || '>> ';
+				END IF;	
+			ELSIF attribut = 'POLYGON' 			THEN req := '
+						ALTER TABLE ' || nom_schema || '.' || nom_table || ' DROP CONSTRAINT IF EXISTS enforce_geotype_geom;
+						ALTER TABLE ' || nom_schema || '.' || nom_table || ' ADD CONSTRAINT enforce_geotype_geom CHECK (geometrytype(geom) = ''POLYGON''::text);-- OR geom IS NULL);
+					';
+			ELSIF attribut = 'MULTIPOLYGON' 	THEN req := '
+						ALTER TABLE ' || nom_schema || '.' || nom_table || ' DROP CONSTRAINT IF EXISTS enforce_geotype_geom;
+						ALTER TABLE ' || nom_schema || '.' || nom_table || ' ADD CONSTRAINT enforce_geotype_geom CHECK (geometrytype(geom) = ''MULTIPOLYGON''::text);-- OR geom IS NULL);
+					';
+			ELSIF attribut = 'LINESTRING' 		THEN req := '
+						ALTER TABLE ' || nom_schema || '.' || nom_table || ' DROP CONSTRAINT IF EXISTS enforce_geotype_geom;
+						ALTER TABLE ' || nom_schema || '.' || nom_table || ' ADD CONSTRAINT enforce_geotype_geom CHECK (geometrytype(geom) = ''LINESTRING''::text);-- OR geom IS NULL);
+					';
+			ELSIF attribut = 'MULTILINESTRING' 	THEN req := '
+						ALTER TABLE ' || nom_schema || '.' || nom_table || ' DROP CONSTRAINT IF EXISTS enforce_geotype_geom;
+						ALTER TABLE ' || nom_schema || '.' || nom_table || ' ADD CONSTRAINT enforce_geotype_geom CHECK (geometrytype(geom) = ''MULTILINESTRING''::text);-- OR geom IS NULL);
+					';
+			ELSIF attribut = 'POINT' 		THEN req := '
+						ALTER TABLE ' || nom_schema || '.' || nom_table || ' DROP CONSTRAINT IF EXISTS enforce_geotype_geom;
+						ALTER TABLE ' || nom_schema || '.' || nom_table || ' ADD CONSTRAINT enforce_geotype_geom CHECK (geometrytype(geom) = ''POINT''::text);-- OR geom IS NULL);
+					';
+			ELSIF attribut = 'MULTIPOINT' 		THEN req := '
+						ALTER TABLE ' || nom_schema || '.' || nom_table || ' DROP CONSTRAINT IF EXISTS enforce_geotype_geom;
+						ALTER TABLE ' || nom_schema || '.' || nom_table || ' ADD CONSTRAINT enforce_geotype_geom CHECK (geometrytype(geom) = ''MULTIPOINT''::text);-- OR geom IS NULL);
+					';
+		else req := 'La valeur attribut est <<' || attribut || '>> ';
 		END IF;
+		RAISE NOTICE '%', req;
+		EXECUTE(req);
+---- B.4.2.3
+		req := '
+			DROP TABLE public.a_supprimer;
+		';
 		RAISE NOTICE '%', req;
 		EXECUTE(req);
 ---- B.5 Ajout de la clef primaire
@@ -326,7 +344,8 @@ FOR i_table IN 1..nb_toutestables LOOP
 				';		
 			else
 				req := '
-					ALTER TABLE ' || nom_schema || '.' || nom_table || ' ADD CONSTRAINT ' || nom_table || '_pkey PRIMARY KEY (cleabs_de_l_objet);
+					--ALTER TABLE ' || nom_schema || '.' || nom_table || ' ADD CONSTRAINT ' || nom_table || '_pkey PRIMARY KEY (cleabs_de_l_objet);
+					select current_time;
 				';					
 			end if;
 			RAISE NOTICE '%', req;
@@ -355,27 +374,19 @@ FOR i_table IN 1..nb_toutestables LOOP
 			END LOOP;				
 ---- B.99 Fin de la boucle
 	ELSE
-	req :='La table ' || nom_schema || '.' || nom_table || ' n’est pas présente';
+	req :='La table ' || nom_schema || '.' || nom_table || ' nest pas présente';
 	RAISE NOTICE '%', req;
 
 	END IF;
 END LOOP; 	
 
 END; 
-$BODY$
-  LANGUAGE plpgsql VOLATILE
-  COST 100;
-  
-  ALTER FUNCTION w_adl_delegue.set_adm_bdtopo_30(
-    emprise character varying,
-    millesime character varying,
-    projection integer)
-  OWNER TO postgres;
- 
-COMMENT ON FUNCTION w_adl_delegue.set_adm_bdtopo_30(
-    emprise character varying,
-    millesime character varying,
-    projection integer)
+$BODY$;
+
+ALTER FUNCTION w_adl_delegue.set_adm_bdtopo_30(character varying, character varying, integer)
+    OWNER TO postgres;
+
+COMMENT ON FUNCTION w_adl_delegue.set_adm_bdtopo_30(character varying, character varying, integer)
     IS '[ADMIN - BDTOPO] - Administration d´un millesime de la BDTOPO 30 une fois son import réalisé
 
 Taches réalisées :
@@ -447,11 +458,10 @@ Tables concernées :
 	zone_d_habitation	
 	zone_de_vegetation	
 
-
 amélioration à faire :
----- B.5.1 Ajout de la clef primaire sauf si doublon d’identifiant notamment n_troncon_cours_eau_bdt
+---- B.5.1 Ajout de la clef primaire sauf si doublon didentifiant notamment n_troncon_cours_eau_bdt
 erreur : 
 ALTER TABLE r_bdtopo_2018.n_toponymie_bati_bdt_000_2018 ADD CONSTRAINT n_toponymie_bati_bdt_000_2018_pkey PRIMARY KEY
 Sur la fonction en cours de travail : Détail :Key (cleabs_de_l_objet)=(CONSSURF0000002000088919) is duplicated..
 
-dernière MAJ : 30/05/2019';
+dernière MAJ : 03/06/2019';
