@@ -2,7 +2,7 @@ CREATE OR REPLACE FUNCTION w_adl_delegue.set_adm_bdtopo_30(
 	emprise character varying,
 	millesime character varying,
 	projection integer DEFAULT 2154)
-    RETURNS void
+    RETURNS text
     LANGUAGE 'plpgsql'
 
     COST 100
@@ -33,6 +33,7 @@ Tables concernées :
 	adresse
 	aerodrome
 	arrondissement
+	arrondissement_municipal
 	bassin_versant_topographique
 	batiment
 	canalisation
@@ -49,7 +50,8 @@ Tables concernées :
 	epci	
 	equipement_de_transport	
 	lieu_dit_non_habite	
-	ligne_electrique	
+	ligne_electrique
+	ligne_orographique	
 	limite_terre_mer	
 	noeud_hydrographique	
 	non_communication	
@@ -81,12 +83,13 @@ Tables concernées :
 	zone_de_vegetation	
 
 amélioration à faire :
+---- A Create Schema : verification que le schéma n'existe pas et le crééer
 ---- B.5.1 Ajout de la clef primaire sauf si doublon didentifiant notamment n_troncon_cours_eau_bdt
 erreur : 
 ALTER TABLE r_bdtopo_2018.n_toponymie_bati_bdt_000_2018 ADD CONSTRAINT n_toponymie_bati_bdt_000_2018_pkey PRIMARY KEY;
 Sur la fonction en cours de travail : Détail :Key (cleabs_de_l_objet)=(CONSSURF0000002000088919) is duplicated..
 
-dernière MAJ : 03/06/2019
+dernière MAJ : 15/06/2019
 */
 
 declare
@@ -103,11 +106,13 @@ BEGIN
 nom_schema:='r_bdtopo_' || millesime;
 
 ---- Référencement des tables à traiter
+
+---- Référencement des tables à traiter
 tb_toutestables := array[
-	
-	'aerodrome',
 	'adresse',
+	'aerodrome',
 	'arrondissement',
+	'arrondissement_municipal',
 	'bassin_versant_topographique',
 	'batiment',
 	'canalisation',
@@ -125,6 +130,7 @@ tb_toutestables := array[
 	'equipement_de_transport',
 	'lieu_dit_non_habite',
 	'ligne_electrique',
+	'ligne_orographique',
 	'limite_terre_mer',
 	'noeud_hydrographique',	
 	'non_communication',
@@ -161,8 +167,8 @@ nb_toutestables := array_length(tb_toutestables, 1);
 req := '
 		CREATE SCHEMA ' || nom_schema || ';
 ';
-EXECUTE(req);
 RAISE NOTICE '%', req;
+--EXECUTE(req);
 
 FOR i_table IN 1..nb_toutestables LOOP
 	nom_table:=tb_toutestables[i_table];
@@ -173,8 +179,8 @@ FOR i_table IN 1..nb_toutestables LOOP
 		ALTER TABLE public.' || nom_table || ' RENAME TO n_' || nom_table || '_bdt_' || emprise || '_' || millesime || ';
 		ALTER TABLE public.n_' || nom_table || '_bdt_' || emprise || '_' || millesime || ' SET SCHEMA ' || nom_schema || ';	
 	';
-	EXECUTE(req);
 	RAISE NOTICE '%', req;
+	EXECUTE(req);
 	
 	ELSE
 	req :='La table ' || nom_schema || '.' || nom_table || ' n est pas présente';
@@ -195,8 +201,8 @@ FOR i_table IN 1..nb_toutestables LOOP
 				ALTER TABLE ' || nom_schema || '.' || nom_table || ' DROP COLUMN IF EXISTS ogc_fid;
 				ALTER TABLE ' || nom_schema || '.' || nom_table || ' DROP COLUMN IF EXISTS id_0;
 		';
-		EXECUTE(req);
 		RAISE NOTICE '%', req;
+		EXECUTE(req);
 ---- B.2 Vérification du nom du champs géométrique
 		SELECT f_geometry_column FROM public.geometry_columns WHERE f_table_schema = nom_schema AND f_table_name = nom_table AND (
 		select count(f_geometry_column) FROM public.geometry_columns WHERE f_table_schema = nom_schema AND f_table_name = nom_table
@@ -240,8 +246,8 @@ FOR i_table IN 1..nb_toutestables LOOP
 		ALTER TABLE ' || nom_schema || '.' || nom_table || ' DROP CONSTRAINT IF EXISTS enforce_srid_geom;
 		ALTER TABLE ' || nom_schema || '.' || nom_table || ' ADD CONSTRAINT enforce_srid_geom CHECK (ST_Srid(geom)=' || projection || ');
 	';
-	EXECUTE(req);
 	RAISE NOTICE '%', req;
+	EXECUTE(req);
 ---- B.4.2 CHECK (geometrytype(geom)
 ---- B.4.2.1 Création de la table pour lister les géométries disponible
 	req := '
@@ -250,8 +256,9 @@ FOR i_table IN 1..nb_toutestables LOOP
 			FROM ' || nom_schema || '.' || nom_table || ' group by geomtype
 		);
 	';
-	EXECUTE(req);
 	RAISE NOTICE '%', req;
+	EXECUTE(req);
+
 
 ---- B.4.2.2 CHECK (geometrytype(geom)
 	SELECT type FROM public.geometry_columns WHERE f_table_schema = nom_schema AND f_table_name = nom_table INTO attribut;
@@ -379,7 +386,7 @@ FOR i_table IN 1..nb_toutestables LOOP
 
 	END IF;
 END LOOP; 	
-
+RETURN current_time;
 END; 
 $BODY$;
 
@@ -405,12 +412,13 @@ Taches réalisées :
 ---- B.7 Ajout des index attributaires non existants
 
 ---- Les commentaires sont renvoyés à une autre fonction
----- La correction du champs géométrique est effectué par une autre fonction set_admin_bdtopo_30_option_geom()
+---- La correction du champs géométrique est effectué par une autre fonction : set_admin_bdtopo_30_option_geom()
 
 Tables concernées :
 	adresse
 	aerodrome
 	arrondissement
+	arrondissement_municipal
 	bassin_versant_topographique
 	batiment
 	canalisation
@@ -427,7 +435,8 @@ Tables concernées :
 	epci	
 	equipement_de_transport	
 	lieu_dit_non_habite	
-	ligne_electrique	
+	ligne_electrique
+	ligne_orographique	
 	limite_terre_mer	
 	noeud_hydrographique	
 	non_communication	
@@ -459,9 +468,10 @@ Tables concernées :
 	zone_de_vegetation	
 
 amélioration à faire :
+---- A Create Schema : verification que le schéma n existe pas et le crééer
 ---- B.5.1 Ajout de la clef primaire sauf si doublon didentifiant notamment n_troncon_cours_eau_bdt
 erreur : 
-ALTER TABLE r_bdtopo_2018.n_toponymie_bati_bdt_000_2018 ADD CONSTRAINT n_toponymie_bati_bdt_000_2018_pkey PRIMARY KEY
+ALTER TABLE r_bdtopo_2018.n_toponymie_bati_bdt_000_2018 ADD CONSTRAINT n_toponymie_bati_bdt_000_2018_pkey PRIMARY KEY;
 Sur la fonction en cours de travail : Détail :Key (cleabs_de_l_objet)=(CONSSURF0000002000088919) is duplicated..
 
-dernière MAJ : 03/06/2019';
+dernière MAJ : 15/06/2019';
