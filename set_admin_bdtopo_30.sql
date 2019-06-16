@@ -1,4 +1,4 @@
-CREATE OR REPLACE FUNCTION w_adl_delegue.set_adm_bdtopo_30(
+CREATE OR REPLACE FUNCTION w_adl_delegue.set_admin_bdtopo_30(
 	emprise character varying,
 	millesime character varying,
 	projection integer DEFAULT 2154)
@@ -390,10 +390,10 @@ RETURN current_time;
 END; 
 $BODY$;
 
-ALTER FUNCTION w_adl_delegue.set_adm_bdtopo_30(character varying, character varying, integer)
+ALTER FUNCTION w_adl_delegue.set_admin_bdtopo_30(character varying, character varying, integer)
     OWNER TO postgres;
 
-COMMENT ON FUNCTION w_adl_delegue.set_adm_bdtopo_30(character varying, character varying, integer)
+COMMENT ON FUNCTION w_adl_delegue.set_admin_bdtopo_30(character varying, character varying, integer)
     IS '[ADMIN - BDTOPO] - Administration d´un millesime de la BDTOPO 30 une fois son import réalisé
 
 Taches réalisées :
