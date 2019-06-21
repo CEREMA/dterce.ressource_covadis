@@ -1,10 +1,7 @@
 --CREATE SCHEMA w_adl_delegue;
 --> Finish time	Sat May 18 09:55:41 CEST 2019
 
-CREATE OR REPLACE FUNCTION w_adl_delegue.set_admin_bdtopo_30(
-		emprise character varying,
-		millesime character varying,
-		projection integer DEFAULT 2154)
+CREATE OR REPLACE FUNCTION w_adl_delegue.set_admin_bdtopo_30(emprise character varying, millesime character varying, projection integer DEFAULT 2154)
  RETURNS text
  LANGUAGE plpgsql
 AS $function$
@@ -39,6 +36,7 @@ Tables concernées :
 	canalisation
 	cimetiere
 	collectivite_territoriale
+	commune_associee_ou_deleguee
 	commune
 	construction_lineaire	
 	construction_ponctuelle	
@@ -48,7 +46,10 @@ Tables concernées :
 	detail_hydrographique	
 	detail_orographique	
 	epci	
-	equipement_de_transport	
+	equipement_de_transport
+	erp
+	foret_publique
+	haie
 	lieu_dit_non_habite	
 	ligne_electrique
 	ligne_orographique	
@@ -58,6 +59,7 @@ Tables concernées :
 	parc_ou_reserve	
 	piste_d_aerodrome	
 	plan_d_eau
+	point_de_repere
 	point_du_reseau	
 	poste_de_transformation	
 	pylone	
@@ -89,7 +91,7 @@ erreur :
 ALTER TABLE r_bdtopo_2018.n_toponymie_bati_bdt_000_2018 ADD CONSTRAINT n_toponymie_bati_bdt_000_2018_pkey PRIMARY KEY;
 Sur la fonction en cours de travail : Détail :Key (cleabs_de_l_objet)=(CONSSURF0000002000088919) is duplicated..
 
-dernière MAJ : 16/06/2019
+dernière MAJ : 21/06/2019
 */
 
 declare
@@ -106,6 +108,7 @@ BEGIN
 nom_schema:='r_bdtopo_' || millesime;
 
 ---- Référencement des tables à traiter
+--DEBUG tb_toutestables := array['erp'];
 tb_toutestables := array[
 	'adresse',
 	'aerodrome',
@@ -117,6 +120,7 @@ tb_toutestables := array[
 	'cimetiere',
 	'collectivite_territoriale',
 	'commune',
+	'commune_associee_ou_deleguee',
 	'construction_lineaire',
 	'construction_ponctuelle',
 	'construction_surfacique',
@@ -126,6 +130,9 @@ tb_toutestables := array[
 	'detail_orographique',
 	'epci',
 	'equipement_de_transport',
+	'erp',
+	'foret_publique',
+	'haie',
 	'lieu_dit_non_habite',
 	'ligne_electrique',
 	'ligne_orographique',
@@ -135,6 +142,7 @@ tb_toutestables := array[
 	'parc_ou_reserve',
 	'piste_d_aerodrome',
 	'plan_d_eau',
+	'point_de_repere',
 	'point_du_reseau',
 	'poste_de_transformation',
 	'pylone',
@@ -190,307 +198,339 @@ END LOOP;
 ---- B. Correction des champs Géométriques
 ---- B.1 - adresse - POINT
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_adresse_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''POINT'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_adresse_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''POINT'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
 ---- B.2 - aerodrome - MULTIPOLYGON
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_aerodrome_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''MULTIPOLYGON'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_aerodrome_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''MULTIPOLYGON'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
 ---- B.3 - arrondissement - MULTIPOLYGON
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_arrondissement_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''MULTIPOLYGON'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_arrondissement_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''MULTIPOLYGON'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
 ---- B.4 - arrondissement_municipal - MULTIPOLYGON 
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_arrondissement_municipal_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''MULTIPOLYGON'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_arrondissement_municipal_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''MULTIPOLYGON'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
 ---- B.5 - bassin_versant_topographique - MULTIPOLYGON
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_bassin_versant_topographique_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''MULTIPOLYGON'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_bassin_versant_topographique_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''MULTIPOLYGON'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
 ---- B.6 - batiment - MULTIPOLYGON
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_batiment_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''MULTIPOLYGON'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_batiment_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''MULTIPOLYGON'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
 ---- B.7 - canalisation - LINESTRING
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_canalisation_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''LINESTRING'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_canalisation_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''LINESTRING'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
 ---- B.8 - cimetiere - MULTIPOLYGON
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_cimetiere_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''MULTIPOLYGON'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_cimetiere_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''MULTIPOLYGON'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
 ---- B.9 - commune - MULTIPOLYGON
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_commune_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''MULTIPOLYGON'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_commune_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''MULTIPOLYGON'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.10 - collectivite_territoriale - MULTIPOLYGON
+---- B.10 - commune_associee_ou_deleguee - MULTIPOLYGON
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_collectivite_territoriale_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''MULTIPOLYGON'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_commune_associee_ou_deleguee_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''MULTIPOLYGON'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.11 - construction_lineaire - LINESTRING
+---- B.11 - collectivite_territoriale - MULTIPOLYGON
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_construction_lineaire_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''LINESTRING'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_collectivite_territoriale_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''MULTIPOLYGON'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.12 - construction_ponctuelle - POINT
+---- B.12 - construction_lineaire - LINESTRING
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_construction_ponctuelle_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''POINT'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_construction_lineaire_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''LINESTRING'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.13 - construction_surfacique - MULTIPOLYGON
+---- B.13 - construction_ponctuelle - POINT
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_construction_surfacique_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''MULTIPOLYGON'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_construction_ponctuelle_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''POINT'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.14 - cours_d_eau - MULTILINESTRING
+---- B.14 - construction_surfacique - MULTIPOLYGON
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_cours_d_eau_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''MULTILINESTRING'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_construction_surfacique_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''MULTIPOLYGON'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.15 - departement - MULTIPOLYGON
+---- B.15 - cours_d_eau - MULTILINESTRING
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_departement_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''MULTIPOLYGON'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_cours_d_eau_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''MULTILINESTRING'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.16 - detail_hydrographique - POINT
+---- B.16 - departement - MULTIPOLYGON
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_detail_hydrographique_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''POINT'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_departement_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''MULTIPOLYGON'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.17 - detail_orographique - POINT
+---- B.17 - detail_hydrographique - POINT
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_detail_orographique_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''POINT'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_detail_hydrographique_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''POINT'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.18 - epci - MULTIPOLYGON
+---- B.18 - detail_orographique - POINT
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_epci_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''MULTIPOLYGON'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_detail_orographique_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''POINT'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.19 - equipement_de_transport	- MULTIPOLYGON
+---- B.19 - epci - MULTIPOLYGON
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_equipement_de_transport_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''MULTIPOLYGON'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_epci_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''MULTIPOLYGON'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.20 - lieu_dit_non_habite - POINT
+
+---- B.20 - erp - POINT
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_lieu_dit_non_habite_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''POINT'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_erp_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''POINT'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.21 - ligne_electrique - LINESTRING
+
+---- B.21 - foret_publique - MULTIPOLYGON
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_ligne_electrique_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''LINESTRING'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_foret_publique_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''MULTIPOLYGON'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.22 - ligne_orographique - LINESTRING
+---- B.22 - haie - LINESTRING
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.ligne_orographique_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''LINESTRING'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_haie_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''LINESTRING'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.23 - limite_terre_mer - LINESTRING
+---- B.23 - equipement_de_transport	- MULTIPOLYGON
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_limite_terre_mer_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''LINESTRING'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_equipement_de_transport_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''MULTIPOLYGON'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.24 - noeud_hydrographique - POINT
+---- B.24 - lieu_dit_non_habite - POINT
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_noeud_hydrographique_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''POINT'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_lieu_dit_non_habite_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''POINT'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.25 - non_communication - POINT
+---- B.25 - ligne_electrique - LINESTRING
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_non_communication_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''POINT'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_ligne_electrique_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''LINESTRING'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.26 - parc_ou_reserve - MULTIPOLYGON
+---- B.26 - ligne_orographique - LINESTRING
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_parc_ou_reserve_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''MULTIPOLYGON'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.ligne_orographique_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''LINESTRING'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.27 - piste_d_aerodrome - MULTIPOLYGON
+---- B.27 - limite_terre_mer - LINESTRING
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_piste_d_aerodrome_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''MULTIPOLYGON'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_limite_terre_mer_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''LINESTRING'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.28 - plan_d_eau - MULTIPOLYGON
+---- B.28 - noeud_hydrographique - POINT
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_plan_d_eau_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''MULTIPOLYGON'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_noeud_hydrographique_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''POINT'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.29 - point_du_reseau - POINT
+---- B.29 - non_communication - POINT
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_point_du_reseau_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''POINT'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_non_communication_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''POINT'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.30 - poste_de_transformation - MULTIPOLYGON
+---- B.30 - parc_ou_reserve - MULTIPOLYGON
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_poste_de_transformation_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''MULTIPOLYGON'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_parc_ou_reserve_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''MULTIPOLYGON'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.31 - pylone - POINT
+---- B.31 - piste_d_aerodrome - MULTIPOLYGON
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_pylone_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''POINT'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_piste_d_aerodrome_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''MULTIPOLYGON'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.32 - region - MULTIPOLYGON
+---- B.32 - plan_d_eau - MULTIPOLYGON
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_region_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''MULTIPOLYGON'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_plan_d_eau_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''MULTIPOLYGON'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.33 - reservoir - MULTIPOLYGON
+---- B.33 - point_de_repere - POINT
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_reservoir_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''MULTIPOLYGON'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_point_de_repere_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''POINT'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.34 - route_numerotee_ou_nommee - MULTILINESTRING
+---- B.34 - point_du_reseau - POINT
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_route_numerotee_ou_nommee_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''MULTILINESTRING'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_point_du_reseau_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''POINT'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.35 - surface_hydrographique - MULTIPOLYGON
+---- B.35 - poste_de_transformation - MULTIPOLYGON
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_surface_hydrographique_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''MULTIPOLYGON'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_poste_de_transformation_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''MULTIPOLYGON'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.36 - terrain_de_sport - MULTIPOLYGON
+---- B.36 - pylone - POINT
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_terrain_de_sport_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''MULTIPOLYGON'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_pylone_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''POINT'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.37 - toponymie_bati - POINT
+---- B.37 - region - MULTIPOLYGON
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_toponymie_bati_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''POINT'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_region_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''MULTIPOLYGON'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.38 - toponymie_hydrographie - POINT
+---- B.38 - reservoir - MULTIPOLYGON
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_toponymie_hydrographie_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''POINT'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_reservoir_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''MULTIPOLYGON'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.39 - toponymie_lieux_nommes - POINT
+---- B.39 - route_numerotee_ou_nommee - MULTILINESTRING
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_toponymie_lieux_nommes_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''POINT'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_route_numerotee_ou_nommee_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''MULTILINESTRING'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.340 - toponymie_services_et_activites - POINT
+---- B.40 - surface_hydrographique - MULTIPOLYGON
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_toponymie_services_et_activites_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''POINT'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_surface_hydrographique_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''MULTIPOLYGON'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.41 - toponymie_transport - POINT
+---- B.41 - terrain_de_sport - MULTIPOLYGON
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_toponymie_transport_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''POINT'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_terrain_de_sport_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''MULTIPOLYGON'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.42 - toponymie_zones_reglementees - POINT
+---- B.42 - toponymie_bati - POINT
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_toponymie_zones_reglementees_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''POINT'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_toponymie_bati_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''POINT'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.43 - transport_par_cable - LINESTRING
+---- B.43 - toponymie_hydrographie - POINT
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_transport_par_cable_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''LINESTRING'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_toponymie_hydrographie_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''POINT'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.44 - troncon_de_route - LINESTRING
+---- B.44 - toponymie_lieux_nommes - POINT
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_troncon_de_route_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''LINESTRING'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_toponymie_lieux_nommes_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''POINT'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.45 - troncon_de_voie_ferree - LINESTRING
+---- B.45 - toponymie_services_et_activites - POINT
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_troncon_de_voie_ferree_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''LINESTRING'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_toponymie_services_et_activites_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''POINT'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.46 - troncon_hydrographique - LINESTRING
+---- B.46 - toponymie_transport - POINT
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_troncon_hydrographique_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''LINESTRING'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_toponymie_transport_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''POINT'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.47 - voie_ferree_nommee - MULTILINESTRING
+---- B.47 - toponymie_zones_reglementees - POINT
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_voie_ferree_nommee_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''MULTILINESTRING'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_toponymie_zones_reglementees_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''POINT'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.48 - zone_d_activite_ou_d_interet - MULTIPOLYGON
+---- B.48 - transport_par_cable - LINESTRING
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_zone_d_activite_ou_d_interet_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''MULTIPOLYGON'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_transport_par_cable_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''LINESTRING'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.49 - zone_d_estran - MULTIPOLYGON
+---- B.49 - troncon_de_route - LINESTRING
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_zone_d_estran_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''MULTIPOLYGON'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_troncon_de_route_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''LINESTRING'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.50 - zone_d_habitation - MULTIPOLYGON
+---- B.50 - troncon_de_voie_ferree - LINESTRING
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_zone_d_habitation_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''MULTIPOLYGON'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_troncon_de_voie_ferree_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''LINESTRING'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
----- B.51 - zone_de_vegetation - MULTIPOLYGON
+---- B.51 - troncon_hydrographique - LINESTRING
 req := '
-		ALTER TABLE IF EXISTS ' || nom_schema || '.n_zone_de_vegetation_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geom TYPE geometry(''MULTIPOLYGON'',' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_troncon_hydrographique_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''LINESTRING'',' || projection || ');
+';
+RAISE NOTICE '%', req;
+EXECUTE(req);
+---- B.52 - voie_ferree_nommee - MULTILINESTRING
+req := '
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_voie_ferree_nommee_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''MULTILINESTRING'',' || projection || ');
+';
+RAISE NOTICE '%', req;
+EXECUTE(req);
+---- B.53 - zone_d_activite_ou_d_interet - MULTIPOLYGON
+req := '
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_zone_d_activite_ou_d_interet_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''MULTIPOLYGON'',' || projection || ');
+';
+RAISE NOTICE '%', req;
+EXECUTE(req);
+---- B.54 - zone_d_estran - MULTIPOLYGON
+req := '
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_zone_d_estran_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''MULTIPOLYGON'',' || projection || ');
+';
+RAISE NOTICE '%', req;
+EXECUTE(req);
+---- B.55 - zone_d_habitation - MULTIPOLYGON
+req := '
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_zone_d_habitation_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''MULTIPOLYGON'',' || projection || ');
+';
+RAISE NOTICE '%', req;
+EXECUTE(req);
+---- B.56 - zone_de_vegetation - MULTIPOLYGON
+req := '
+		ALTER TABLE IF EXISTS ' || nom_schema || '.n_zone_de_vegetation_bdt_' || emprise || '_' || millesime || ' ALTER COLUMN geometrie TYPE geometry(''MULTIPOLYGON'',' || projection || ');
 ';
 RAISE NOTICE '%', req;
 EXECUTE(req);
@@ -503,9 +543,9 @@ FOR i_table IN 1..nb_toutestables LOOP
 	then
 ---- C.1 Suppression du champs gid créée et de la séquence correspondante
 	req := '
-				ALTER TABLE IF EXISTS' || nom_schema || '.' || nom_table || ' DROP COLUMN IF EXISTS gid;
-				ALTER TABLE IF EXISTS' || nom_schema || '.' || nom_table || ' DROP COLUMN IF EXISTS ogc_fid;
-				ALTER TABLE IF EXISTS' || nom_schema || '.' || nom_table || ' DROP COLUMN IF EXISTS id_0;
+				ALTER TABLE IF EXISTS ' || nom_schema || '.' || nom_table || ' DROP COLUMN IF EXISTS gid;
+				ALTER TABLE IF EXISTS ' || nom_schema || '.' || nom_table || ' DROP COLUMN IF EXISTS ogc_fid;
+				ALTER TABLE IF EXISTS ' || nom_schema || '.' || nom_table || ' DROP COLUMN IF EXISTS id_0;
 		';
 		RAISE NOTICE '%', req;
 		EXECUTE(req);
@@ -522,7 +562,7 @@ FOR i_table IN 1..nb_toutestables LOOP
 		RAISE NOTICE '%', req;
 		ELSE
 			req :='
-				ALTER TABLE IF EXISTS' || nom_schema || '.' || nom_table || ' RENAME ' || attribut  || ' TO geom;
+				ALTER TABLE IF EXISTS ' || nom_schema || '.' || nom_table || ' RENAME ' || attribut  || ' TO geom;
 			 ';
 			RAISE NOTICE '%', req;
 			EXECUTE(req);
@@ -548,9 +588,9 @@ FOR i_table IN 1..nb_toutestables LOOP
 ---- C.4.1 Ajout des contraintes sur le champs géométrie
 	req := '
 		ALTER TABLE IF EXISTS ' || nom_schema || '.' || nom_table || ' DROP CONSTRAINT IF EXISTS enforce_dims_geom;
-		ALTER TABLE IF EXISTS' || nom_schema || '.' || nom_table || ' ADD CONSTRAINT enforce_dims_geom CHECK (ST_NDims(geom)=2);
-		ALTER TABLE IF EXISTS' || nom_schema || '.' || nom_table || ' DROP CONSTRAINT IF EXISTS enforce_srid_geom;
-		ALTER TABLE IF EXISTS' || nom_schema || '.' || nom_table || ' ADD CONSTRAINT enforce_srid_geom CHECK (ST_Srid(geom)=' || projection || ');
+		ALTER TABLE IF EXISTS ' || nom_schema || '.' || nom_table || ' ADD CONSTRAINT enforce_dims_geom CHECK (ST_NDims(geom)=2);
+		ALTER TABLE IF EXISTS ' || nom_schema || '.' || nom_table || ' DROP CONSTRAINT IF EXISTS enforce_srid_geom;
+		ALTER TABLE IF EXISTS ' || nom_schema || '.' || nom_table || ' ADD CONSTRAINT enforce_srid_geom CHECK (ST_Srid(geom)=' || projection || ');
 	';
 	RAISE NOTICE '%', req;
 	EXECUTE(req);
@@ -564,7 +604,6 @@ FOR i_table IN 1..nb_toutestables LOOP
 	';
 	RAISE NOTICE '%', req;
 	EXECUTE(req);
-
 
 ---- C.4.2.2 CHECK (geometrytype(geom)
 	SELECT type FROM public.geometry_columns WHERE f_table_schema = nom_schema AND f_table_name = nom_table INTO attribut;
@@ -692,6 +731,7 @@ FOR i_table IN 1..nb_toutestables LOOP
 
 	END IF;
 END LOOP; 	
+
 RETURN current_time;
 END; 
 $function$
@@ -716,7 +756,8 @@ Taches réalisées :
 ---- C.7 Ajout des index attributaires non existants
 
 ---- Les commentaires sont renvoyés à une autre fonction
-Tables concernées :
+
+TTables concernées :
 	adresse
 	aerodrome
 	arrondissement
@@ -726,6 +767,7 @@ Tables concernées :
 	canalisation
 	cimetiere
 	collectivite_territoriale
+	commune_associee_ou_deleguee
 	commune
 	construction_lineaire	
 	construction_ponctuelle	
@@ -735,7 +777,10 @@ Tables concernées :
 	detail_hydrographique	
 	detail_orographique	
 	epci	
-	equipement_de_transport	
+	equipement_de_transport
+	erp
+	foret_publique
+	haie
 	lieu_dit_non_habite	
 	ligne_electrique
 	ligne_orographique	
@@ -745,6 +790,7 @@ Tables concernées :
 	parc_ou_reserve	
 	piste_d_aerodrome	
 	plan_d_eau
+	point_de_repere
 	point_du_reseau	
 	poste_de_transformation	
 	pylone	
@@ -776,4 +822,5 @@ erreur :
 ALTER TABLE r_bdtopo_2018.n_toponymie_bati_bdt_000_2018 ADD CONSTRAINT n_toponymie_bati_bdt_000_2018_pkey PRIMARY KEY;
 Sur la fonction en cours de travail : Détail :Key (cleabs_de_l_objet)=(CONSSURF0000002000088919) is duplicated..
 
-dernière MAJ : 16/06/2019';
+dernière MAJ : 21/06/2019';
+
