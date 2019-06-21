@@ -1,5 +1,14 @@
-CREATE OR REPLACE FUNCTION w_adl_delegue.creer_vues_dptales_bdtopo30 (emprise character varying, millesime character varying, projection integer DEFAULT 2154)
-  RETURNS text AS $function$
+CREATE OR REPLACE FUNCTION w_adl_delegue.creer_vues_dptales_bdtopo30(
+	emprise character varying,
+	millesime character varying,
+	projection integer DEFAULT 2154)
+    RETURNS text
+    LANGUAGE 'plpgsql'
+
+    COST 100
+    VOLATILE 
+AS $BODY$
+
 /*
 [ADMIN - BDTOPO] - création des vues départementales matérialisées et vues classiques une fois les couches nationales administrées
 ---- Liste des départements pour la DTerCE 'élargie'
@@ -163,7 +172,7 @@ tb_table := array[
 nb_table := array_length(tb_table, 1);
 
 ---- Liste des départements pour la DTerCE 'élargie'
-DEBUG tb_dpt_vuestockee := array['001','003'];
+tb_dpt_vuestockee := array['001','003'];
 /*tb_dpt_vuestockee := array['001','003','007',
 							'015','019',
 							'021','023','025','026',
@@ -257,6 +266,102 @@ END LOOP;
 */
 RETURN current_time;
 END;
-$function$
-  LANGUAGE plpgsql VOLATILE
-  COST 100;
+
+$BODY$;
+
+ALTER FUNCTION w_adl_delegue.creer_vues_dptales_bdtopo30(character varying, character varying, integer)
+    OWNER TO postgres;
+
+GRANT EXECUTE ON FUNCTION w_adl_delegue.creer_vues_dptales_bdtopo30(character varying, character varying, integer) TO adl_detc;
+
+GRANT EXECUTE ON FUNCTION w_adl_delegue.creer_vues_dptales_bdtopo30(character varying, character varying, integer) TO postgres;
+
+GRANT EXECUTE ON FUNCTION w_adl_delegue.creer_vues_dptales_bdtopo30(character varying, character varying, integer) TO PUBLIC;
+
+GRANT EXECUTE ON FUNCTION w_adl_delegue.creer_vues_dptales_bdtopo30(character varying, character varying, integer) TO adl_delegues;
+
+GRANT EXECUTE ON FUNCTION w_adl_delegue.creer_vues_dptales_bdtopo30(character varying, character varying, integer) TO adl_dla;
+
+GRANT EXECUTE ON FUNCTION w_adl_delegue.creer_vues_dptales_bdtopo30(character varying, character varying, integer) TO adl_dlcf;
+
+GRANT EXECUTE ON FUNCTION w_adl_delegue.creer_vues_dptales_bdtopo30(character varying, character varying, integer) TO adl_dmob;
+
+COMMENT ON FUNCTION w_adl_delegue.creer_vues_dptales_bdtopo30(character varying, character varying, integer)
+    IS '[ADMIN - BDTOPO] - création des vues départementales matérialisées et vues classiques une fois les couches nationales administrées
+---- Liste des départements pour la DTerCE ''élargie''
+---- Liste des départements hors DTerCE ''élargie''
+
+Taches réalisées :
+---- A. generation des vues départementales matérialisées : 
+---- A.1 Boucle pour la generation des vues stockées épartements pour la DTerCE ''élargie''
+---- A.1.1 Ajout d''un champs de géométrie en 2154
+---- A.2 Ajout des index spatiaux
+---- A.3 Ajout des index attributaires non existants
+
+---- B. generation des vues départementales simples hors DTerCE ''élargie''
+---- B.1 Boucle pour la generation des vues stockées
+
+---- Les commentaires sont renvoyés à une autre fonction
+
+Tables concernées :
+	adresse
+	aerodrome
+	arrondissement
+	arrondissement_municipal
+	bassin_versant_topographique
+	batiment
+	canalisation
+	cimetiere
+	collectivite_territoriale
+	commune_associee_ou_deleguee
+	commune
+	construction_lineaire	
+	construction_ponctuelle	
+	construction_surfacique	
+	cours_d_eau
+	departement	
+	detail_hydrographique	
+	detail_orographique	
+	epci	
+	equipement_de_transport
+	erp
+	foret_publique
+	haie
+	lieu_dit_non_habite	
+	ligne_electrique
+	ligne_orographique	
+	limite_terre_mer	
+	noeud_hydrographique	
+	non_communication	
+	parc_ou_reserve	
+	piste_d_aerodrome	
+	plan_d_eau
+	point_de_repere
+	point_du_reseau	
+	poste_de_transformation	
+	pylone	
+	region	
+	reservoir	
+	route_numerotee_ou_nommee		
+	surface_hydrographique	
+	terrain_de_sport	
+	toponymie_bati	
+	toponymie_hydrographie	
+	toponymie_lieux_nommes	
+	toponymie_services_et_activites	
+	toponymie_transport	
+	toponymie_zones_reglementees	
+	transport_par_cable	
+	troncon_de_route	
+	troncon_de_voie_ferree	
+	troncon_hydrographique	
+	voie_ferree_nommee	
+	zone_d_activite_ou_d_interet	
+	zone_d_estran	
+	zone_d_habitation	
+	zone_de_vegetation	
+
+amélioration à faire :
+Spécifier le type de géométrie dans le champs geom_2154
+
+dernière MAJ : 21/06/2019';
