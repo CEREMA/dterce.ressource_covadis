@@ -35,7 +35,7 @@ CREATE TABLE r_bdparcellaire.n_commune_bdp_r32_2014 PARTITION OF r_bdparcellaire
 ---- BRETAGNE    53 : Côtes-d´Armor (22) / Finistère (29) / Ille-et-Vilaine (35) / Morbihan (56)
 CREATE TABLE r_bdparcellaire.n_commune_bdp_r53_2014 PARTITION OF r_bdparcellaire.n_commune_bdp_000_2014 FOR VALUES IN ('22','29','35','56') PARTITION BY LIST (code_dep);
 ---- CORSE    94 : Haute-Corse (2B) / Corse-du-Sud (2A)
-CREATE TABLE r_bdparcellaire.n_commune_bdp_r94_2014 PARTITION OF r_bdparcellaire.n_commune_bdp_000_2014 FOR VALUES IN ('02a','02b') PARTITION BY LIST (code_dep);
+CREATE TABLE r_bdparcellaire.n_commune_bdp_r94_2014 PARTITION OF r_bdparcellaire.n_commune_bdp_000_2014 FOR VALUES IN ('02A','02B') PARTITION BY LIST (code_dep);
 ---- ILE-DE-FRANCE    11 : Paris (75) / Seine-et-Marne (77) / Yvelines (78) / Essonne (91) / Hauts-de-Seine (92) / Seine-Saint-Denis (93) / Val-de-Marne (94) / Val-d´Oise (95)
 CREATE TABLE r_bdparcellaire.n_commune_bdp_r11_2014 PARTITION OF r_bdparcellaire.n_commune_bdp_000_2014 FOR VALUES IN ('75','77','78','91','92','93','94','95') PARTITION BY LIST (code_dep);
 
@@ -136,15 +136,15 @@ CREATE TABLE r_bdparcellaire.n_commune_bdp_002_2014 PARTITION OF r_bdparcellaire
 CREATE TABLE r_bdparcellaire.n_commune_bdp_059_2014 PARTITION OF r_bdparcellaire.n_commune_bdp_r32_2014 FOR VALUES IN ('059');
 CREATE TABLE r_bdparcellaire.n_commune_bdp_060_2014 PARTITION OF r_bdparcellaire.n_commune_bdp_r32_2014 FOR VALUES IN ('060');
 CREATE TABLE r_bdparcellaire.n_commune_bdp_062_2014 PARTITION OF r_bdparcellaire.n_commune_bdp_r32_2014 FOR VALUES IN ('062');
-CREATE TABLE r_bdparcellaire.n_commune_bdp_080_2014 PARTITION OF r_bdparcellaire.n_commune_bdp_r32_2014 FOR VALUES IN ('082');
+CREATE TABLE r_bdparcellaire.n_commune_bdp_080_2014 PARTITION OF r_bdparcellaire.n_commune_bdp_r32_2014 FOR VALUES IN ('080');
 ---- BRETAGNE    53 : Côtes-d´Armor (22) / Finistère (29) / Ille-et-Vilaine (35) / Morbihan (56)
 CREATE TABLE r_bdparcellaire.n_commune_bdp_022_2014 PARTITION OF r_bdparcellaire.n_commune_bdp_r53_2014 FOR VALUES IN ('022');
 CREATE TABLE r_bdparcellaire.n_commune_bdp_029_2014 PARTITION OF r_bdparcellaire.n_commune_bdp_r53_2014 FOR VALUES IN ('029');
 CREATE TABLE r_bdparcellaire.n_commune_bdp_035_2014 PARTITION OF r_bdparcellaire.n_commune_bdp_r53_2014 FOR VALUES IN ('035');
 CREATE TABLE r_bdparcellaire.n_commune_bdp_056_2014 PARTITION OF r_bdparcellaire.n_commune_bdp_r53_2014 FOR VALUES IN ('056');
 ---- CORSE    94 : Haute-Corse (2B) / Corse-du-Sud (2A)
-CREATE TABLE r_bdparcellaire.n_commune_bdp_02a_2014 PARTITION OF r_bdparcellaire.n_commune_bdp_r94_2014 FOR VALUES IN ('02a');
-CREATE TABLE r_bdparcellaire.n_commune_bdp_02b_2014 PARTITION OF r_bdparcellaire.n_commune_bdp_r94_2014 FOR VALUES IN ('02b');
+CREATE TABLE r_bdparcellaire.n_commune_bdp_02a_2014 PARTITION OF r_bdparcellaire.n_commune_bdp_r94_2014 FOR VALUES IN ('02A');
+CREATE TABLE r_bdparcellaire.n_commune_bdp_02b_2014 PARTITION OF r_bdparcellaire.n_commune_bdp_r94_2014 FOR VALUES IN ('02A');
 ---- ILE-DE-FRANCE    11 : Paris (75) / Seine-et-Marne (77) / Yvelines (78) / Essonne (91) / Hauts-de-Seine (92) / Seine-Saint-Denis (93) / Val-de-Marne (94) / Val-d´Oise (95)
 CREATE TABLE r_bdparcellaire.n_commune_bdp_075_2014 PARTITION OF r_bdparcellaire.n_commune_bdp_r11_2014 FOR VALUES IN ('075');
 CREATE TABLE r_bdparcellaire.n_commune_bdp_077_2014 PARTITION OF r_bdparcellaire.n_commune_bdp_r11_2014 FOR VALUES IN ('077');
@@ -247,15 +247,15 @@ ALTER TABLE r_bdparcellaire.n_commune_bdp_002_2014 ATTACH PARTITION r_bdparcella
 ALTER TABLE r_bdparcellaire.n_commune_bdp_059_2014 ATTACH PARTITION r_bdparcellaire.n_commune_bdp_r32_2014 FOR VALUES IN ('059');
 ALTER TABLE r_bdparcellaire.n_commune_bdp_060_2014 ATTACH PARTITION r_bdparcellaire.n_commune_bdp_r32_2014 FOR VALUES IN ('060');
 ALTER TABLE r_bdparcellaire.n_commune_bdp_062_2014 ATTACH PARTITION r_bdparcellaire.n_commune_bdp_r32_2014 FOR VALUES IN ('062');
-ALTER TABLE r_bdparcellaire.n_commune_bdp_080_2014 ATTACH PARTITION r_bdparcellaire.n_commune_bdp_r32_2014 FOR VALUES IN ('082');
+ALTER TABLE r_bdparcellaire.n_commune_bdp_080_2014 ATTACH PARTITION r_bdparcellaire.n_commune_bdp_r32_2014 FOR VALUES IN ('080');
 ---- BRETAGNE    53 : Côtes-d´Armor (22) / Finistère (29) / Ille-et-Vilaine (35) / Morbihan (56)
 ALTER TABLE r_bdparcellaire.n_commune_bdp_022_2014 ATTACH PARTITION r_bdparcellaire.n_commune_bdp_r53_2014 FOR VALUES IN ('022');
 ALTER TABLE r_bdparcellaire.n_commune_bdp_029_2014 ATTACH PARTITION r_bdparcellaire.n_commune_bdp_r53_2014 FOR VALUES IN ('029');
 ALTER TABLE r_bdparcellaire.n_commune_bdp_035_2014 ATTACH PARTITION r_bdparcellaire.n_commune_bdp_r53_2014 FOR VALUES IN ('035');
 ALTER TABLE r_bdparcellaire.n_commune_bdp_056_2014 ATTACH PARTITION r_bdparcellaire.n_commune_bdp_r53_2014 FOR VALUES IN ('056');
 ---- CORSE    94 : Haute-Corse (2B) / Corse-du-Sud (2A)
-ALTER TABLE r_bdparcellaire.n_commune_bdp_02a_2014 ATTACH PARTITION r_bdparcellaire.n_commune_bdp_r94_2014 FOR VALUES IN ('02a');
-ALTER TABLE r_bdparcellaire.n_commune_bdp_02b_2014 ATTACH PARTITION r_bdparcellaire.n_commune_bdp_r94_2014 FOR VALUES IN ('02b');
+ALTER TABLE r_bdparcellaire.n_commune_bdp_02a_2014 ATTACH PARTITION r_bdparcellaire.n_commune_bdp_r94_2014 FOR VALUES IN ('02A');
+ALTER TABLE r_bdparcellaire.n_commune_bdp_02b_2014 ATTACH PARTITION r_bdparcellaire.n_commune_bdp_r94_2014 FOR VALUES IN ('02A');
 ---- ILE-DE-FRANCE    11 : Paris (75) / Seine-et-Marne (77) / Yvelines (78) / Essonne (91) / Hauts-de-Seine (92) / Seine-Saint-Denis (93) / Val-de-Marne (94) / Val-d´Oise (95)
 ALTER TABLE r_bdparcellaire.n_commune_bdp_075_2014 ATTACH PARTITION r_bdparcellaire.n_commune_bdp_r11_2014 FOR VALUES IN ('075');
 ALTER TABLE r_bdparcellaire.n_commune_bdp_077_2014 ATTACH PARTITION r_bdparcellaire.n_commune_bdp_r11_2014 FOR VALUES IN ('077');
