@@ -188,18 +188,18 @@ END LOOP;
 
 ---- C. Optimisation de toutes les tables
 ---- Référencement des tables à traiter
-tb_toutestables := array['arrondissement'];
---DEBUG tb_toutestables := array[
---	'arrondissement',
---	'batiment',
---	'borne_limite_propriete',
---  'borne_parcelle'
---	'commune',
---	'feuille',
---	'localisant',
---	'parcelle',
---	'subdivision_fiscale'
---		];
+--DEBUG tb_toutestables := array['arrondissement'];
+tb_toutestables := array[
+	'arrondissement',
+	'batiment',
+	'borne_limite_propriete',
+	'borne_parcelle',
+	'commune',
+	'feuille',
+	'localisant',
+	'parcelle',
+	'subdivision_fiscale'
+		];
 nb_toutestables := array_length(tb_toutestables, 1);
 FOR i_table IN 1..nb_toutestables LOOP
 	nom_table:='n_' || tb_toutestables[i_table] || '_pepci_' || emprise || '_' || millesime;
