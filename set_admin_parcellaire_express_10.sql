@@ -193,7 +193,6 @@ tb_toutestables := array[
 	'arrondissement',
 	'batiment',
 	'borne_limite_propriete',
-	'borne_parcelle',
 	'commune',
 	'feuille',
 	'localisant',
