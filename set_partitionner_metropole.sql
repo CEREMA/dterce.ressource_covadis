@@ -1,4 +1,8 @@
-CREATE OR REPLACE FUNCTION partitionner_metropole(
+-- FUNCTION: w_adl_delegue.set_partitionner_metropole(character varying)
+
+-- DROP FUNCTION w_adl_delegue.set_partitionner_metropole(character varying);
+
+CREATE OR REPLACE FUNCTION w_adl_delegue.set_partitionner_metropole(
 	racine_table character varying)
     RETURNS text
     LANGUAGE 'plpgsql'
@@ -6,7 +10,41 @@ CREATE OR REPLACE FUNCTION partitionner_metropole(
     COST 100
     VOLATILE 
 AS $BODY$
+/*
+[ADMIN] - Crée et attache les 13 régions et les 95 départements à une table France Métropolitaine (000) existante et vide.
 
+Obligatoire : champs de partitionnement existant sur la tables existante : code_dep char(3)
+
+Option :
+- racine_table = 'nomduschema.nomdelatable'
+
+Taches réalisées :
+---- A. Mise en place des Régions
+---- Création des 13 régions de 2019 elles-mêmes partitionnables
+---- B. Mise en place des Départements par Région :
+---- AUVERGNE-RHONE-ALPES r84 : Ain (01) / Allier (03) / Ardèche (07) / Cantal (15) / Drôme (26) / Isère (3 / Loire (42) / Haute-Loire (43) / Puy-de-Dôme (63) / Rhône (69D) / Métropole de Lyon (69M) / Savoie (73) / Haute-Savoie (74)
+---- BOURGOGNE-FRANCHE-COMTE r27 : Côte-d Or (21) / Doubs (25) / Jura (39) / Nièvre (5 / Haute-Saône (70) / Saône-et-Loire (71) / Yonne (89) / Territoire de Belfort (90)
+---- OCCITANIE r76 : Ariège (09) / Aude (11) / Aveyron (12) / Gard (30) / Haute-Garonne (31) / Gers (32) / Hérault (34) / Lot (46) / Lozère (48) / Hautes-Pyrénées (65) / Pyrénées-Orientales (66) / Tarn (81) / Tarn-et-Garonne (82)
+---- CENTRE-VAL DE LOIRE r24 : Cher (18) / Eure-et-Loir (28) / Indre (36) / Indre-et-Loire (37) / Loir-et-Cher (41) / Loiret (45)
+---- NORMANDIE r28 : Calvados (14) / Eure (27) / Manche (50) / Orne (61) / Seine-Maritime (76)
+---- NOUVELLE-AQUITAINE r75 : Charente (16) : Charente-Maritime (17) / Corrèze (19) / Creuse (23) / Dordogne (24) / Gironde (33) / Landes (40) / Lot-et-Garonne (47) / Pyrénées-Atlantiques (64) / Deux-Sèvres (79) / Vienne (86) / Haute-Vienne (87)
+---- GRAND EST r44 : Ardennes (08) / Aube (10) / Marne (51) / Haute-Marne (52) / Meurthe-et-Moselle (54) / Meuse (55) / Moselle (57) / Bas-Rhin (67) / Haut-Rhin (68) / Vosges (88)
+---- PROVENCE-ALPES-COTE D AZUR r93 : Alpes-de-Haute-Provence (04) / Hautes-Alpes (05) / Alpes-Maritimes (06) / Bouches-du-Rhône (13) / Var (83) / Vaucluse (84)
+---- PAYS DE LA LOIRE r52 : Loire-Atlantique (44) / Maine-et-Loire (49) / Mayenne (53) / Sarthe (72) / Vendée (85)
+---- HAUTS-DE-FRANCE r32 : Aisne (02) / Nord (59) / Oise (60) / Pas-de-Calais (62) / Somme (80)
+---- BRETAGNE r53 : Côtes-d´Armor (22) / Finistère (29) / Ille-et-Vilaine (35) / Morbihan (56)
+---- CORSE r94 : Haute-Corse (2B) / Corse-du-Sud (2A)
+---- ILE-DE-FRANCE r11 : Paris (75) / Seine-et-Marne (77) / Yvelines (78) / Essonne (91) / Hauts-de-Seine (92) / Seine-Saint-Denis (93) / Val-de-Marne (94) / Val-d´Oise (95)
+
+Tables concernées :
+- paramètre en entrée
+
+amélioration à faire :
+- faire une boucle 'rrr' , ['ddd',...,'ddd']
+- pouvoir spécifier un champs de partitionnement autre
+
+dernière MAJ : 24/07/2019
+*/
 declare
 req 		text;					-- Texte de la requete à faire passer
 region 		character varying;		-- Région
@@ -48,7 +86,7 @@ EXECUTE(req);
 
 ---- B. Mise en place des Départements par Région :
 req := '
-	---- AUVERGNE-RHONE-ALPES    84 : Ain (01) / Allier (03) / Ardèche (07) / Cantal (15) / Drôme (26) / Isère (3 / Loire (42) / Haute-Loire (43) / Puy-de-Dôme (63) / Rhône (69D) / Métropole de Lyon (69M) / Savoie (73) / Haute-Savoie (74)
+	---- AUVERGNE-RHONE-ALPES    84 : Ain (01) / Allier (03) / Ardèche (07) / Cantal (15) / Drôme (26) / Isère (38) / Loire (42) / Haute-Loire (43) / Puy-de-Dôme (63) / Rhône (69D) / Métropole de Lyon (69M) / Savoie (73) / Haute-Savoie (74)
 	CREATE TABLE ' || racine_table || '_001 PARTITION OF ' || racine_table || '_r84 FOR VALUES IN (''001'');
 	CREATE TABLE ' || racine_table || '_003 PARTITION OF ' || racine_table || '_r84 FOR VALUES IN (''003'');
 	CREATE TABLE ' || racine_table || '_007 PARTITION OF ' || racine_table || '_r84 FOR VALUES IN (''007'');
@@ -61,7 +99,7 @@ req := '
 	CREATE TABLE ' || racine_table || '_069 PARTITION OF ' || racine_table || '_r84 FOR VALUES IN (''069'');
 	CREATE TABLE ' || racine_table || '_073 PARTITION OF ' || racine_table || '_r84 FOR VALUES IN (''073'');
 	CREATE TABLE ' || racine_table || '_074 PARTITION OF ' || racine_table || '_r84 FOR VALUES IN (''074'');
-	---- BOURGOGNE-FRANCHE-COMTE    27 : Côte-d Or (21) / Doubs (25) / Jura (39) / Nièvre (5 / Haute-Saône (70) / Saône-et-Loire (71) / Yonne (89) / Territoire de Belfort (90)
+	---- BOURGOGNE-FRANCHE-COMTE    27 : Côte-d Or (21) / Doubs (25) / Jura (39) / Nièvre (58) / Haute-Saône (70) / Saône-et-Loire (71) / Yonne (89) / Territoire de Belfort (90)
 	CREATE TABLE ' || racine_table || '_021 PARTITION OF ' || racine_table || '_r27 FOR VALUES IN (''021'');
 	CREATE TABLE ' || racine_table || '_025 PARTITION OF ' || racine_table || '_r27 FOR VALUES IN (''025'');
 	CREATE TABLE ' || racine_table || '_039 PARTITION OF ' || racine_table || '_r27 FOR VALUES IN (''039'');
@@ -70,7 +108,7 @@ req := '
 	CREATE TABLE ' || racine_table || '_071 PARTITION OF ' || racine_table || '_r27 FOR VALUES IN (''071'');
 	CREATE TABLE ' || racine_table || '_089 PARTITION OF ' || racine_table || '_r27 FOR VALUES IN (''089'');
 	CREATE TABLE ' || racine_table || '_090 PARTITION OF ' || racine_table || '_r27 FOR VALUES IN (''090'');
-	---- OCCITANIE    76 : Ariège (09) / Aude (11) / Aveyron (12) / Gard (30) / Haute-Garonne (31) / Gers (32) / Hérault (34) / Lot (46) / Lozère (4 / Hautes-Pyrénées (65) / Pyrénées-Orientales (66) / Tarn (81) / Tarn-et-Garonne (82)
+	---- OCCITANIE    76 : Ariège (09) / Aude (11) / Aveyron (12) / Gard (30) / Haute-Garonne (31) / Gers (32) / Hérault (34) / Lot (46) / Lozère (48) / Hautes-Pyrénées (65) / Pyrénées-Orientales (66) / Tarn (81) / Tarn-et-Garonne (82)
 	CREATE TABLE ' || racine_table || '_009 PARTITION OF ' || racine_table || '_r76 FOR VALUES IN (''009'');
 	CREATE TABLE ' || racine_table || '_011 PARTITION OF ' || racine_table || '_r76 FOR VALUES IN (''011'');
 	CREATE TABLE ' || racine_table || '_012 PARTITION OF ' || racine_table || '_r76 FOR VALUES IN (''012'');
@@ -84,7 +122,7 @@ req := '
 	CREATE TABLE ' || racine_table || '_066 PARTITION OF ' || racine_table || '_r76 FOR VALUES IN (''066'');
 	CREATE TABLE ' || racine_table || '_081 PARTITION OF ' || racine_table || '_r76 FOR VALUES IN (''081'');
 	CREATE TABLE ' || racine_table || '_082 PARTITION OF ' || racine_table || '_r76 FOR VALUES IN (''082'');
-	---- CENTRE-VAL DE LOIRE    24 : Cher (1 / Eure-et-Loir (2 / Indre (36) / Indre-et-Loire (37) / Loir-et-Cher (41) / Loiret (45)
+	---- CENTRE-VAL DE LOIRE    24 : Cher (18) / Eure-et-Loir (28) / Indre (36) / Indre-et-Loire (37) / Loir-et-Cher (41) / Loiret (45)
 	CREATE TABLE ' || racine_table || '_018 PARTITION OF ' || racine_table || '_r24 FOR VALUES IN (''018'');
 	CREATE TABLE ' || racine_table || '_028 PARTITION OF ' || racine_table || '_r24 FOR VALUES IN (''028'');
 	CREATE TABLE ' || racine_table || '_036 PARTITION OF ' || racine_table || '_r24 FOR VALUES IN (''036'');
@@ -110,7 +148,7 @@ req := '
 	CREATE TABLE ' || racine_table || '_079 PARTITION OF ' || racine_table || '_r75 FOR VALUES IN (''079'');
 	CREATE TABLE ' || racine_table || '_086 PARTITION OF ' || racine_table || '_r75 FOR VALUES IN (''086'');
 	CREATE TABLE ' || racine_table || '_087 PARTITION OF ' || racine_table || '_r75 FOR VALUES IN (''087'');
-	---- GRAND EST    44 : Ardennes (0 / Aube (10) / Marne (51) / Haute-Marne (52) / Meurthe-et-Moselle (54) / Meuse (55) / Moselle (57) / Bas-Rhin (67) / Haut-Rhin (6 / Vosges (8
+	---- GRAND EST    44 : Ardennes (08) / Aube (10) / Marne (51) / Haute-Marne (52) / Meurthe-et-Moselle (54) / Meuse (55) / Moselle (57) / Bas-Rhin (67) / Haut-Rhin (68) / Vosges (88)
 	CREATE TABLE ' || racine_table || '_008 PARTITION OF ' || racine_table || '_r44 FOR VALUES IN (''008'');
 	CREATE TABLE ' || racine_table || '_010 PARTITION OF ' || racine_table || '_r44 FOR VALUES IN (''010'');
 	CREATE TABLE ' || racine_table || '_051 PARTITION OF ' || racine_table || '_r44 FOR VALUES IN (''051'');
@@ -148,7 +186,7 @@ req := '
 	---- CORSE    94 : Haute-Corse (2B) / Corse-du-Sud (2A)
 	CREATE TABLE ' || racine_table || '_02a PARTITION OF ' || racine_table || '_r94 FOR VALUES IN (''02A'');
 	CREATE TABLE ' || racine_table || '_02b PARTITION OF ' || racine_table || '_r94 FOR VALUES IN (''02B'');
-	---- ILE-DE-FRANCE    11 : Paris (75) / Seine-et-Marne (77) / Yvelines (7 / Essonne (91) / Hauts-de-Seine (92) / Seine-Saint-Denis (93) / Val-de-Marne (94) / Val-d´Oise (95)
+	---- ILE-DE-FRANCE    11 : Paris (75) / Seine-et-Marne (77) / Yvelines (78) / Essonne (91) / Hauts-de-Seine (92) / Seine-Saint-Denis (93) / Val-de-Marne (94) / Val-d´Oise (95)
 	CREATE TABLE ' || racine_table || '_075 PARTITION OF ' || racine_table || '_r11 FOR VALUES IN (''075'');
 	CREATE TABLE ' || racine_table || '_077 PARTITION OF ' || racine_table || '_r11 FOR VALUES IN (''077'');
 	CREATE TABLE ' || racine_table || '_078 PARTITION OF ' || racine_table || '_r11 FOR VALUES IN (''078'');
@@ -164,3 +202,41 @@ EXECUTE(req);
 RETURN current_time;
 END; 
 $BODY$;
+
+ALTER FUNCTION w_adl_delegue.set_partitionner_metropole(character varying)
+    OWNER TO postgres;
+
+COMMENT ON FUNCTION w_adl_delegue.set_partitionner_metropole(character varying)
+    IS '[ADMIN] - Crée et attache les 13 régions et les 95 départements à une table France Métropolitaine (000) existante et vide.
+
+Obligatoire : champs de partitionnement existant sur la tables existante : code_dep char(3)
+
+Option :
+- racine_table = ''nomduschema.nomdelatable''
+
+Taches réalisées :
+---- A. Mise en place des Régions
+---- Création des 13 régions de 2019 elles-mêmes partitionnables
+---- B. Mise en place des Départements par Région :
+---- AUVERGNE-RHONE-ALPES r84 : Ain (01) / Allier (03) / Ardèche (07) / Cantal (15) / Drôme (26) / Isère (3 / Loire (42) / Haute-Loire (43) / Puy-de-Dôme (63) / Rhône (69D) / Métropole de Lyon (69M) / Savoie (73) / Haute-Savoie (74)
+---- BOURGOGNE-FRANCHE-COMTE r27 : Côte-d Or (21) / Doubs (25) / Jura (39) / Nièvre (5 / Haute-Saône (70) / Saône-et-Loire (71) / Yonne (89) / Territoire de Belfort (90)
+---- OCCITANIE r76 : Ariège (09) / Aude (11) / Aveyron (12) / Gard (30) / Haute-Garonne (31) / Gers (32) / Hérault (34) / Lot (46) / Lozère (48) / Hautes-Pyrénées (65) / Pyrénées-Orientales (66) / Tarn (81) / Tarn-et-Garonne (82)
+---- CENTRE-VAL DE LOIRE r24 : Cher (18) / Eure-et-Loir (28) / Indre (36) / Indre-et-Loire (37) / Loir-et-Cher (41) / Loiret (45)
+---- NORMANDIE r28 : Calvados (14) / Eure (27) / Manche (50) / Orne (61) / Seine-Maritime (76)
+---- NOUVELLE-AQUITAINE r75 : Charente (16) : Charente-Maritime (17) / Corrèze (19) / Creuse (23) / Dordogne (24) / Gironde (33) / Landes (40) / Lot-et-Garonne (47) / Pyrénées-Atlantiques (64) / Deux-Sèvres (79) / Vienne (86) / Haute-Vienne (87)
+---- GRAND EST r44 : Ardennes (08) / Aube (10) / Marne (51) / Haute-Marne (52) / Meurthe-et-Moselle (54) / Meuse (55) / Moselle (57) / Bas-Rhin (67) / Haut-Rhin (68) / Vosges (88)
+---- PROVENCE-ALPES-COTE D AZUR r93 : Alpes-de-Haute-Provence (04) / Hautes-Alpes (05) / Alpes-Maritimes (06) / Bouches-du-Rhône (13) / Var (83) / Vaucluse (84)
+---- PAYS DE LA LOIRE r52 : Loire-Atlantique (44) / Maine-et-Loire (49) / Mayenne (53) / Sarthe (72) / Vendée (85)
+---- HAUTS-DE-FRANCE r32 : Aisne (02) / Nord (59) / Oise (60) / Pas-de-Calais (62) / Somme (80)
+---- BRETAGNE r53 : Côtes-d´Armor (22) / Finistère (29) / Ille-et-Vilaine (35) / Morbihan (56)
+---- CORSE r94 : Haute-Corse (2B) / Corse-du-Sud (2A)
+---- ILE-DE-FRANCE r11 : Paris (75) / Seine-et-Marne (77) / Yvelines (78) / Essonne (91) / Hauts-de-Seine (92) / Seine-Saint-Denis (93) / Val-de-Marne (94) / Val-d´Oise (95)
+
+Tables concernées :
+- paramètre en entrée
+
+amélioration à faire :
+- faire une boucle ''rrr'' , [''ddd'',...,''ddd'']
+- pouvoir spécifier un champs de partitionnement autre
+
+dernière MAJ : 24/07/2019';
