@@ -5,7 +5,7 @@
 CREATE OR REPLACE FUNCTION w_adl_delegue.set_comment_parcellaire_express_10(
 	covadis boolean DEFAULT false,
 	emprise character varying DEFAULT NULL::character varying,
-	millesime character varying DEFAULT NULL::character varying)
+	millesime character varying DEFAULT EXTRACT(YEAR FROM current_date)::character(4))
     RETURNS text
     LANGUAGE 'plpgsql'
 
@@ -33,7 +33,7 @@ Tables concernées :
 
 amélioration à faire :
 
-dernière MAJ : 28/06/2019
+dernière MAJ : 26/07/2019
 */
 
 declare
@@ -49,9 +49,9 @@ nomgeometrie 				text; 					-- "GeometryType" de la table
 begin
 IF covadis is true
 	THEN
-		nom_schema:='r_parcellaire_express_' || millesime;
+		nom_schema := 'r_parcellaire_express_' || millesime;
 	ELSE
-		nom_schema:='public';
+		nom_schema := 'public';
 END IF;
 
 ---- D. Mise en place des commentaires
@@ -83,6 +83,8 @@ En conséquence une commune change de code INSEE si un arrêté préfectoral mod
 	';
 	RAISE NOTICE '%', req;
 	EXECUTE(req);
+ELSE
+	RAISE NOTICE 'La table n’est pas présente : %', nom_table;
 END IF;
 
 ---- D.1 batiment
@@ -116,6 +118,8 @@ côté.'';
 		';
 	RAISE NOTICE '%', req;
 	EXECUTE(req);
+ELSE
+	RAISE NOTICE 'La table n’est pas présente : %', nom_table;
 END IF;
 
 ---- D.2 borne_limite_propriete
@@ -146,6 +150,8 @@ absorbée [3 car], section cadastrale [2 car], numéro de feuille [2 car] et num
 		';
 	RAISE NOTICE '%', req;
 	EXECUTE(req);
+ELSE
+	RAISE NOTICE 'La table n’est pas présente : %', nom_table;
 END IF;
 
 ---- D.3 commune
@@ -179,6 +185,8 @@ En conséquence une commune change de code INSEE si un arrêté préfectoral mod
 		';
 	RAISE NOTICE '%', req;
 	EXECUTE(req);
+ELSE
+	RAISE NOTICE 'La table n’est pas présente : %', nom_table;
 END IF;
 	
 	---- D.4 feuille
@@ -228,6 +236,8 @@ Code officiel géographique de l’INSEE (COG).'';
 		';
 	RAISE NOTICE '%', req;
 	EXECUTE(req);
+ELSE
+	RAISE NOTICE 'La table n’est pas présente : %', nom_table;
 END IF;
 
 ---- D.5 localisant
@@ -282,6 +292,8 @@ Code officiel géographique de l’INSEE (COG).'';
 		';
 	RAISE NOTICE '%', req;
 	EXECUTE(req);
+ELSE
+	RAISE NOTICE 'La table n’est pas présente : %', nom_table;
 END IF;
 
 ---- D.6 parcelle
@@ -335,6 +347,8 @@ Code officiel géographique de l’INSEE (COG).'';
 		';
 	RAISE NOTICE '%', req;
 	EXECUTE(req);
+ELSE
+	RAISE NOTICE 'La table n’est pas présente : %', nom_table;
 END IF;
 
 ---- D.7 subdivision_fiscale
@@ -369,16 +383,18 @@ Le code de la commune absorbée (COM_ABS) est égal à 000 lorsque la commune n�
 		';
 	RAISE NOTICE '%', req;
 	EXECUTE(req);
+ELSE
+	RAISE NOTICE 'La table n’est pas présente : %', nom_table;
 END IF;
 
 ---- D.7 borne_parcelle
 IF covadis is true
 	then
 		nom_table := 'n_borne_parcelle_pepci_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
+		nomgeometrie := '';
 	else
 		nom_table := 'borne_parcelle';
-		nomgeometrie := 'geom';
+		nomgeometrie := '';
 END IF;
 
 IF EXISTS (SELECT relname FROM pg_class where relname=nom_table) THEN
@@ -403,6 +419,8 @@ Le code de la commune absorbée (COM_ABS) est égal à 000 lorsque la commune n�
 		';
 	RAISE NOTICE '%', req;
 	EXECUTE(req);
+ELSE
+	RAISE NOTICE 'La table n’est pas présente : %', nom_table;
 END IF;
 
 RETURN current_time;
@@ -433,4 +451,4 @@ Tables concernées :
 
 amélioration à faire :
 
-dernière MAJ : 22/07/2019';
+dernière MAJ : 26/07/2019';
