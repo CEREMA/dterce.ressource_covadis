@@ -19,7 +19,7 @@ Option :
 - nommage COVADIS  par défault non
 - si oui :
 	emprise : ddd pour département, rrr pour région, 000 pour métropole, fra pour France entière,
-	millesime : aaaa pour l'année du millesime
+	millesime : aaaa pour l’année du millesime
 
 Tables concernées :
 	batiment
@@ -37,14 +37,14 @@ dernière MAJ : 26/07/2019
 */
 
 declare
-nom_schema 					character varying;		-- Schéma du référentiel en text
-nom_table 					character varying;		-- nom de la table en text
-req 						text;
-veriftable 					character varying;
-tb_toutestables				character varying[];	-- Toutes les tables
-nb_toutestables 			integer;				-- Nombre de tables --> normalement XX
-attribut 					character varying; 		-- Liste des attributs de la table
-nomgeometrie 				text; 					-- "GeometryType" de la table
+nom_schema 				character varying;		-- Schéma du référentiel en text
+nom_table 				character varying;		-- nom de la table en text
+req 					text;				-- requête à passer
+veriftable 				character varying;		-- nom de la table à vérifer
+tb_toutestables				character varying[];		-- Toutes les tables
+nb_toutestables 			integer;			-- Nombre de tables --> normalement XX
+attribut 				character varying; 		-- Liste des attributs de la table
+nomgeometrie 				text; 				-- "GeometryType" de la table
 
 begin
 IF covadis is true
@@ -73,7 +73,7 @@ IF EXISTS (SELECT relname FROM pg_class where relname=nom_table) THEN
 	RAISE NOTICE '%', req;
 	EXECUTE(req);
 ---- Commentaires colonnes ’
-	req :='
+	req := '
 	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_insee IS ''Numéro INSEE de la commune obtenu par concaténation du numéro de département et du numéro de commune.
 Une commune nouvelle résultant d’un regroupement de communes préexistantes se voit attribuer le code INSEE de l’ancienne commune désignée comme chef-lieu par l’arrêté préfectoral qui l’institue.
 En conséquence une commune change de code INSEE si un arrêté préfectoral modifie son chef-lieu.'';
@@ -99,14 +99,14 @@ END IF;
 
 IF EXISTS (SELECT relname FROM pg_class where relname=nom_table) THEN
 ---- Commentaire Table ’
-	req :='
+	req := '
 		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN PARCELLAIRE EXPRESS® - Edition ' || millesime || ' - Type de bâtiment selon la distinction faite par le service du Cadastre en fonction
 de la normalisation du PCI Vecteur.'';
 	';
 	RAISE NOTICE '%', req;
 	EXECUTE(req);
 ---- Commentaires colonnes ’
-	req :='	
+	req := '	
 		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.type IS ''Type de bâtiment selon la distinction faite par le service du Cadastre en
 fonction de la normalisation du PCI Vecteur :
 - Bâtiment en dur : Construction attachée au sol par des fondations et fermée sur
@@ -134,13 +134,13 @@ END IF;
 
 IF EXISTS (SELECT relname FROM pg_class where relname=nom_table) THEN
 ---- Commentaire Table ’
-	req :='
+	req := '
 		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN PARCELLAIRE EXPRESS® - Edition ' || millesime || ' - Toutes les bornes de limite de propriété présentes dans le PCI Vecteur.'';
 	';
 	RAISE NOTICE '%', req;
 	EXECUTE(req);
 ---- Commentaires colonnes ’
-	req :='	
+	req := '	
 		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.id IS ''Identifiant de la borne de limite de propriété.
 Il s’agit de la concaténation d’attributs des classes FEUILLE, LOCALISANT et PARCELLE et du numéro du fichier de la DGFiP (précédé d’un underscore).
 Cet identifiant n’est pas stable dans le temps, c’est-à-dire qu’il n’est pas le même d’une édition à l’autre.
@@ -166,14 +166,14 @@ END IF;
 
 IF EXISTS (SELECT relname FROM pg_class where relname=nom_table) THEN
 ---- Commentaire Table ’
-	req :='
+	req := '
 		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN PARCELLAIRE EXPRESS® - Edition ' || millesime || ' - Plus petite subdivision du territoire, administrée par un maire, des adjoints et un conseil municipal.
 Les objets surfaciques « Commune » forment une partition du territoire national à l’exception de certains lacs, étangs côtiers, et des eaux territoriales.'';
 	';
 	RAISE NOTICE '%', req;
 	EXECUTE(req);
 ---- Commentaires colonnes ’
-	req :='
+	req := '
     COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nom_com IS ''Nom officiel de la commune.'';	
     COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_dep IS ''Code INSEE du département.
 	Pour les départements et collectivités d’outre-mer, seuls les deux premiers chiffres du numéro départemental sont pris en compte.
@@ -201,7 +201,7 @@ END IF;
 
 IF EXISTS (SELECT relname FROM pg_class where relname=nom_table) THEN
 ---- Commentaire Table ’
-	req :='
+	req := '
 		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN PARCELLAIRE EXPRESS® - Edition ' || millesime || ' - Feuille cadastrale.
 Partie du plan cadastral correspondant à une section ou à une subdivision de section (voir paragraphe 6. GLOSSAIRE).
 Dans la plupart des cas, une feuille correspond à la partie du plan contenue dans une section, mais certaines feuilles peuvent contenir plusieurs sections.
@@ -210,7 +210,7 @@ Sur un territoire donné (commune ou arrondissement municipal), les objets surfa
 	RAISE NOTICE '%', req;
 	EXECUTE(req);
 ---- Commentaires colonnes ’
-	req :='
+	req := '
     COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.feuille IS ''Numéro de la feuille cadastrale.
 Il permet d’identifier les subdivisions de section dans le cas des feuilles issues du cadastre napoléonien ou pour celles des départements du Bas-Rhin (67), du Haut-Rhin (68) et de Moselle (57).'';
     COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.section IS ''Numéro de la section cadastrale.
@@ -252,7 +252,7 @@ END IF;
 
 IF EXISTS (SELECT relname FROM pg_class where relname=nom_table) THEN
 ---- Commentaire Table ’
-	req :='
+	req := '
 		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN PARCELLAIRE EXPRESS® - Edition ' || millesime || ' - Localisant de parcelle cadastrale, situé dans l’emprise d’une parcelle du plan cadastral.
 Pour les communes non couvertes par le PCI vecteur, il est issu des fichiers des localisants parcellaires produits par la DGFiP.
 Pour les communes couvertes par le PCI vecteur, il est calculé de manière à être situé à l’intérieur de l’objet parcelle.'';
@@ -260,7 +260,7 @@ Pour les communes couvertes par le PCI vecteur, il est calculé de manière à �
 	RAISE NOTICE '%', req;
 	EXECUTE(req);
 ---- Commentaires colonnes ’
-	req :='
+	req := '
     COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.idu IS ''Identifiant unique de la parcelle cadastrale.
 Référence de la parcelle obtenue par concaténation d’attributs : Code du département [2 car], code de la commune [3 car], code de la commune absorbée [3 car], section cadastrale [2 car] et numéro de parcelle [4 car], soit : IDU = CODE_DEP + CODE_COM + COM_ABS + SECTION + NUMERO
 Cas particuliers des communes avec arrondissements municipaux (Paris, Lyon, Marseille) :
@@ -308,14 +308,14 @@ END IF;
 
 IF EXISTS (SELECT relname FROM pg_class where relname=nom_table) THEN
 ---- Commentaire Table ’
-	req :='
+	req := '
 		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN PARCELLAIRE EXPRESS® - Edition ' || millesime || ' - Parcelle : Portion du territoire communal d’un seul tenant située dans une même section, appartenant à un même propriétaire et formant un tout dont l’indépendance est évidente en regard de l’agencement de la propriété.
 (Nomenclature d’échange du CNIG, indice EDIGÉO Z13-150).'';
 	';
 	RAISE NOTICE '%', req;
 	EXECUTE(req);
 ---- Commentaires colonnes ’
-	req :='
+	req := '
     COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.idu IS ''Identifiant unique de la parcelle cadastrale.
 Référence de la parcelle obtenue par concaténation d’attributs : Code du département [2 car], code de la commune [3 car], code de la commune absorbée [3 car], section cadastrale [2 car] et numéro de parcelle [4 car], soit : IDU = CODE_DEP + CODE_COM + COM_ABS + SECTION + NUMERO
 Cas particuliers des communes avec arrondissements municipaux (Paris, Lyon, Marseille) :
@@ -363,7 +363,7 @@ END IF;
 
 IF EXISTS (SELECT relname FROM pg_class where relname=nom_table) THEN
 ---- Commentaire Table ’
-	req :='
+	req := '
 		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN PARCELLAIRE EXPRESS® - Edition ' || millesime || ' - Subdivision fiscale d’une parcelle.
 Toutes les subdivisions fiscales présentes dans le PCI Vecteur.
 Limite de la subdivision. En principe, cette limite définit un contour simple, éventuellement troué.
@@ -372,7 +372,7 @@ Exceptionnellement, si les fichiers PCI Vecteur la décrivent ainsi, la subdivis
 	RAISE NOTICE '%', req;
 	EXECUTE(req);
 ---- Commentaires colonnes ’
-	req :='
+	req := '
     COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.idu IS ''Identifiant unique de la parcelle cadastrale.
 Référence de la parcelle obtenue par concaténation d’attributs : Code du département [2 car], code de la commune [3 car], code de la commune absorbée [3 car], section cadastrale [2 car] et numéro de parcelle [4 car], soit : IDU = CODE_DEP + CODE_COM + COM_ABS + SECTION + NUMERO
 Cas particuliers des communes avec arrondissements municipaux (Paris, Lyon, Marseille) :
@@ -399,13 +399,13 @@ END IF;
 
 IF EXISTS (SELECT relname FROM pg_class where relname=nom_table) THEN
 ---- Commentaire Table ’
-	req :='
+	req := '
 		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN PARCELLAIRE EXPRESS® - Edition ' || millesime || ' - Table permettant de faire le lien entre les classes BORNE_LIMITE_PROPRIETE et PARCELLE.'';
 	';
 	RAISE NOTICE '%', req;
 	EXECUTE(req);
 ---- Commentaires colonnes ’
-	req :='
+	req := '
 			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.id_borne IS ''Identifiant de la borne de limite de propriété.
 Il s’agit de la concaténation d’attributs des classes FEUILLE, LOCALISANT et PARCELLE et du numéro du fichier de la DGFiP (précédé d’un underscore).
 Cet identifiant n’est pas stable dans le temps, c’est-à-dire qu’il n’est pas le même d’une édition à l’autre.
@@ -437,7 +437,7 @@ Option :
 - nommage COVADIS  par défault non
 - si oui :
 	emprise : ddd pour département, rrr pour région, 000 pour métropole, fra pour France entière,
-	millesime : aaaa pour l''année du millesime
+	millesime : aaaa pour l’année du millesime
 
 Tables concernées :
 	batiment
