@@ -13,14 +13,20 @@ CREATE OR REPLACE FUNCTION w_adl_delegue.set_admin_parcellaire_express_10(
     COST 100
     VOLATILE 
 AS $BODY$/*
-[ADMIN - BDTOPO] - Administration d´un millesime du PARCELLAIRE EXPRESS V1 une fois son import réalisé
+[ADMIN - PARCELLAIRE EXPRESS] - Administration d´un millesime du PARCELLAIRE EXPRESS V1 une fois son import réalisé
+
+Option :
+1°) nommage COVADIS  par défault non : import avec nom d’origine et dans schema public
+- si oui :
+2°)	emprise : ddd pour département, rrr pour région, 000 pour métropole, fra pour France entière,
+3°)	millesime : aaaa pour l’année du millesime
+4°) projection
 
 Taches réalisées :
----- A. Déplacement et Renomage des tables
----- B. Optimisation des tables non géographiques
----- B.1 Suppression du champs gid créée et de la séquence correspondante
----- B.2 Ajout de la clef primaire
----- B.3 Ajout des index attributaires non existants
+---- A. Optimisation des tables non géographiques
+---- A.1 Suppression du champs gid créée et de la séquence correspondante
+---- A.2 Ajout de la clef primaire
+---- A.3 Ajout des index attributaires non existants
 ---- C. Optimisation de toutes les tables
 ---- C.1 Suppression du champs gid créée et de la séquence correspondante
 ---- C.2 Vérification du nom du champs géométrique
@@ -48,75 +54,52 @@ Tables concernées :
 	subdivision_fiscale
 
 amélioration à faire :
----- A Create Schema : verification que le schéma n'existe pas et le crééer
----- C.5.2 Ajout de la clef primaire sauf si doublon d?identifiant notamment n_troncon_cours_eau_bdt
+---- A Create Schema : verification que le schéma n’existe pas et le crééer
+---- C.5.2 Ajout de la clef primaire sauf si doublon d’identifiant notamment n_troncon_cours_eau_bdt
 erreur : 
 ALTER TABLE r_bdtopo_2018.n_toponymie_bati_bdt_000_2018 ADD CONSTRAINT n_toponymie_bati_bdt_000_2018_pkey PRIMARY KEY;
 Sur la fonction en cours de travail : Détail :Key (cleabs_de_l_objet)=(CONSSURF0000002000088919) is duplicated..
 
-dernière MAJ : 22/07/2019
+dernière MAJ : 27/07/2019
 */
 
 declare
 nom_schema 					character varying;		-- Schéma du référentiel en text
 nom_table 					character varying;		-- nom de la table en text
-req 						text;
-veriftable 					character varying;
+req 						text;					-- requête à passer
+veriftable 					character varying;		-- cérification de l'existance des tables
 tb_toutestables				character varying[];	-- Toutes les tables
 nb_toutestables 			integer;				-- Nombre de tables --> normalement XX
 attribut 					character varying; 		-- Liste des attributs de la table
 typegeometrie 				text; 					-- "GeometryType" de la table
 
 BEGIN
-IF covadis is true
-	THEN
-		nom_schema:='r_parcellaire_express_' || millesime;
-	ELSE
-		nom_schema:='public';
-END IF;
 
----- A. Déplacement et Renomage des tables
 IF covadis is false
 	THEN
+		nom_schema = 'public';
+	ELSE
+		nom_schema = 'r_parcellaire_express_' || millesime;
 		req := '
 			CREATE SCHEMA ' || nom_schema || ';
 		';
 		RAISE NOTICE '%', req;
 		EXECUTE(req);
-		
-		FOR i_table IN 1..nb_toutestables LOOP
-			nom_table:=tb_toutestables[i_table];
-			SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename = nom_table INTO veriftable;
-			IF LEFT(veriftable,length (nom_table)) = nom_table
-			then
-			req := '
-				ALTER TABLE public.' || nom_table || ' RENAME TO n_' || nom_table || '_pepci_' || emprise || '_' || millesime || ';
-				ALTER TABLE public.n_' || nom_table || '_pepci_' || emprise || '_' || millesime || ' SET SCHEMA ' || nom_schema || ';	
-			';
-			RAISE NOTICE '%', req;
-			EXECUTE(req);
+END IF;
 
-			ELSE
-			req :='La table ' || nom_schema || '.' || nom_table || ' n est pas présente';
-			RAISE NOTICE '%', req;
-
-			END IF;
-		END LOOP; 
-	ELSE
-		req := 'Le schéma ' || nom_schema || ' existe déjà et les tables sont déjà renomées !';
-		RAISE NOTICE '%', req;
-	END IF;
-
----- B. Optimisation des tables non géographiques
+---- A. Optimisation des tables non géographiques
 ---- Référencement des tables à traiter
 tb_toutestables := array['borne_parcelle'];
 nb_toutestables := array_length(tb_toutestables, 1);
 FOR i_table IN 1..nb_toutestables LOOP
-	nom_table:='n_' || tb_toutestables[i_table] || '_pepci_' || emprise || '_' || millesime;
+	IF covadis is false
+		THEN nom_table := tb_toutestables[i_table];
+		ELSE nom_table:='n_' || tb_toutestables[i_table] || '_pepci_' || emprise || '_' || millesime;
+	END IF;
 	SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = nom_table INTO veriftable;
 	IF LEFT(veriftable,length (nom_table)) = nom_table
 	then
----- B.1 Suppression du champs gid créée et de la séquence correspondante
+---- A.1 Suppression du champs gid créée et de la séquence correspondante
 	req := '
 				ALTER TABLE IF EXISTS ' || nom_schema || '.' || nom_table || ' DROP COLUMN IF EXISTS gid;
 				ALTER TABLE IF EXISTS ' || nom_schema || '.' || nom_table || ' DROP COLUMN IF EXISTS ogc_fid;
@@ -124,8 +107,8 @@ FOR i_table IN 1..nb_toutestables LOOP
 		';
 		RAISE NOTICE '%', req;
 		EXECUTE(req);
----- B.2 Ajout de la clef primaire
----- B.2.1 Suppression de l'ancienne si existante
+---- A.2 Ajout de la clef primaire
+---- A.2.1 Suppression de l'ancienne si existante
 		select t1.conname from pg_constraint as t1, pg_class as t2
 		where t2.relname = nom_table and t1.contype = 'p' and t1.conrelid = t2.oid
 		into attribut;
@@ -143,7 +126,7 @@ FOR i_table IN 1..nb_toutestables LOOP
 			EXECUTE(req);
 		END IF;
 
----- B.2.2 Création de la clé primaire selon IGN
+---- A.2.2 Création de la clé primaire selon IGN
 			select left(nom_table,10) into attribut;
 			IF attribut = 'n_commune_'
 			then
@@ -164,7 +147,7 @@ FOR i_table IN 1..nb_toutestables LOOP
 			end if;
 			RAISE NOTICE '%', req;
 			EXECUTE(req);
----- B.3 Ajout des index attributaires non existants
+---- A.3 Ajout des index attributaires non existants
 			FOR attribut IN
 				SELECT COLUMN_NAME
 					FROM INFORMATION_SCHEMA.COLUMNS
@@ -178,7 +161,7 @@ FOR i_table IN 1..nb_toutestables LOOP
 					RAISE NOTICE '%', req;
 					EXECUTE(req);
 			END LOOP;				
----- B.99 Fin de la boucle
+---- A.99 Fin de la boucle
 	ELSE
 	req :='La table ' || nom_schema || '.' || nom_table || ' n est pas présente';
 	RAISE NOTICE '%', req;
@@ -201,7 +184,10 @@ tb_toutestables := array[
 		];
 nb_toutestables := array_length(tb_toutestables, 1);
 FOR i_table IN 1..nb_toutestables LOOP
-	nom_table:='n_' || tb_toutestables[i_table] || '_pepci_' || emprise || '_' || millesime;
+	IF covadis is false
+		THEN nom_table := tb_toutestables[i_table];
+		ELSE nom_table:='n_' || tb_toutestables[i_table] || '_pepci_' || emprise || '_' || millesime;
+	END IF;
 	SELECT tablename FROM pg_tables WHERE schemaname = nom_schema AND tablename = nom_table INTO veriftable;
 	IF LEFT(veriftable,length (nom_table)) = nom_table
 	then
@@ -410,14 +396,20 @@ ALTER FUNCTION w_adl_delegue.set_admin_parcellaire_express_10(boolean, character
     OWNER TO postgres;
 
 COMMENT ON FUNCTION w_adl_delegue.set_admin_parcellaire_express_10(boolean, character varying, character varying, integer)
-    IS '[ADMIN - PARCELLAIRE EXPRESS V1] - Administration d´un millesime du PARCELLAIRE EXPRESS V1 une fois son import réalisé
+    IS '[ADMIN - PARCELLAIRE EXPRESS] - Administration d´un millesime du PARCELLAIRE EXPRESS V1 une fois son import réalisé
+
+Option :
+1°) nommage COVADIS  par défault non : import avec nom d’origine et dans schema public
+- si oui :
+2°)	emprise : ddd pour département, rrr pour région, 000 pour métropole, fra pour France entière,
+3°)	millesime : aaaa pour l’année du millesime
+4°) projection
 
 Taches réalisées :
----- A. Déplacement et Renomage des tables
----- B. Optimisation des tables non géographiques
----- B.1 Suppression du champs gid créée et de la séquence correspondante
----- B.2 Ajout de la clef primaire
----- B.3 Ajout des index attributaires non existants
+---- A. Optimisation des tables non géographiques
+---- A.1 Suppression du champs gid créée et de la séquence correspondante
+---- A.2 Ajout de la clef primaire
+---- A.3 Ajout des index attributaires non existants
 ---- C. Optimisation de toutes les tables
 ---- C.1 Suppression du champs gid créée et de la séquence correspondante
 ---- C.2 Vérification du nom du champs géométrique
@@ -445,10 +437,10 @@ Tables concernées :
 	subdivision_fiscale
 
 amélioration à faire :
----- A Create Schema : verification que le schéma n''existe pas et le crééer
----- C.5.2 Ajout de la clef primaire sauf si doublon d?identifiant notamment n_troncon_cours_eau_bdt
+---- A Create Schema : verification que le schéma n’existe pas et le crééer
+---- C.5.2 Ajout de la clef primaire sauf si doublon d’identifiant notamment n_troncon_cours_eau_bdt
 erreur : 
 ALTER TABLE r_bdtopo_2018.n_toponymie_bati_bdt_000_2018 ADD CONSTRAINT n_toponymie_bati_bdt_000_2018_pkey PRIMARY KEY;
 Sur la fonction en cours de travail : Détail :Key (cleabs_de_l_objet)=(CONSSURF0000002000088919) is duplicated..
 
-dernière MAJ : 22/07/2019';
+dernière MAJ : 27/07/2019';
