@@ -1,15 +1,25 @@
-CREATE OR REPLACE FUNCTION w_adl_delegue.set_comment_bdtopo_30(covadis boolean DEFAULT false, emprise character varying DEFAULT NULL::character varying, millesime character varying DEFAULT NULL::character varying)
+CREATE OR REPLACE FUNCTION w_adl_delegue.set_comment_bdtopo_3(nom_schema character varying, livraison character DEFAULT 'sql'::bpchar, emprise character DEFAULT '000'::bpchar, millesime character DEFAULT NULL::bpchar, covadis boolean DEFAULT true)
  RETURNS text
  LANGUAGE plpgsql
 AS $function$
+
 /*
 [ADMIN - BDTOPO] - Mise en place des commentaires
 
 Option :
-- nommage COVADIS  par défault non
-- si oui :
-	emprise : ddd pour département, rrr pour région, 000 pour métropole, fra pour France entière,
-	millesime : aaaa pour l'année du millesime
+- nom du schéma où se trouvent les tables
+- format de livraison de l'IGN :
+	- 'shp' = shapefile
+	- 'sql' = dump postgis
+- emprise sur 3 caractères selon la COVADIS ddd : 
+	- 'fra' : France Entière
+	- '000' : France Métropolitaine
+	- 'rrr' : Numéro INSEE de la Région : 'r84' pour Avergne-Rhône-Alpes
+	- 'ddd' : Numéro INSEE du département : '038' pour l'Isère
+				non pris en compte si COVADIS = false
+- millesime selon COVADIS : aaaa pour l'année du millesime ou null si pas de millesime
+				non pris en compte si COVADIS = false
+- COVADIS : nommage des tble selon la COVADIS : oui : true / non false
 
 Tables concernées :
 	adresse
@@ -72,2258 +82,1290 @@ Tables concernées :
 amélioration à faire :
 
 
-dernière MAJ : 28/06/2019
+dernière MAJ : 12/12/2019
 */
 
 declare
-nom_schema 					character varying;		-- Schéma du référentiel en text
 nom_table 					character varying;		-- nom de la table en text
+champs						character varying;		-- nom de la table en text;
+commentaires 				character varying;		-- nom de la table en text
 req 						text;
 veriftable 					character varying;
-tb_toutestables				character varying[];	-- Toutes les tables
-nb_toutestables 			integer;				-- Nombre de tables --> normalement XX
+liste_valeur				character varying[][4];	-- Toutes les tables
+--liste_sous_valeur			character varying[3];	-- Toutes les tables
+nb_valeur					integer;				-- Nombre de tables --> normalement XX
 attribut 					character varying; 		-- Liste des attributs de la table
-nomgeometrie 				text; 					-- "GeometryType" de la table
+--typegeometrie 				text; 					-- "GeometryType" de la table
 
 begin
-IF covadis is true
-	THEN
-		nom_schema:='r_bdtopo_' || millesime;
-	ELSE
-		nom_schema:='public';
-END IF;
+	
+---- A] Commentaires des tables
+---- Liste des valeurs à passer :
+---- ARRAY['nom de la table telle que livrées par IGN','nom du champs dans le livraison SQL','nom du champs dans la livraison shapefile', 'Commentaires à passer']
+---- récupéré ici http://professionnels.ign.fr/doc/Structure_Nouvelle_BDTopo%20%285%29.xlsx
+liste_valeur := ARRAY[
+ARRAY['adresse','.'],
+ARRAY['aerodrome','.'],
+ARRAY['arrondissement','.'],
+ARRAY['arrondissement_municipal','.'],
+ARRAY['bassin_versant_topographique','.'],
+ARRAY['batiment','.'],
+ARRAY['canalisation','.'],
+ARRAY['cimetiere','.'],
+ARRAY['collectivite_territoriale','.'],
+ARRAY['commune_associee_ou_deleguee','.'],
+ARRAY['commune','.'],
+ARRAY['construction_lineaire','.'],
+ARRAY['construction_ponctuelle','.'],
+ARRAY['construction_surfacique','.'],
+ARRAY['cours_d_eau','.'],
+ARRAY['departement','.'],
+ARRAY['detail_hydrographique','.'],
+ARRAY['detail_orographique','.'],
+ARRAY['epci','.'],
+ARRAY['equipement_de_transport','.'],
+ARRAY['erp','.'],
+ARRAY['foret_publique','.'],
+ARRAY['haie','.'],
+ARRAY['lieu_dit_non_habite','.'],
+ARRAY['ligne_electrique','.'],
+ARRAY['ligne_orographique','.'],
+ARRAY['limite_terre_mer','.'],
+ARRAY['noeud_hydrographique','.'],
+ARRAY['non_communication','.'],
+ARRAY['parc_ou_reserve','.'],
+ARRAY['piste_d_aerodrome','.'],
+ARRAY['plan_d_eau','.'],
+ARRAY['point_de_repere','.'],
+ARRAY['point_du_reseau','.'],
+ARRAY['poste_de_transformation','.'],
+ARRAY['pylone','.'],
+ARRAY['region','.'],
+ARRAY['reservoir','.'],
+ARRAY['route_numerotee_ou_nommee','.'],
+ARRAY['surface_hydrographique','.'],
+ARRAY['terrain_de_sport','.'],
+ARRAY['toponymie_bati','.'],
+ARRAY['toponymie_hydrographie','.'],
+ARRAY['toponymie_lieux_nommes','.'],
+ARRAY['toponymie_services_et_activites','.'],
+ARRAY['toponymie_transport','.'],
+ARRAY['toponymie_zones_reglementees','.'],
+ARRAY['transport_par_cable','.'],
+ARRAY['troncon_de_route','.'],
+ARRAY['troncon_de_voie_ferree','.'],
+ARRAY['troncon_hydrographique','.'],
+ARRAY['voie_ferree_nommee','.'],
+ARRAY['zone_d_activite_ou_d_interet','.'],
+ARRAY['zone_d_estran','.'],
+ARRAY['zone_d_habitation','.'],
+ARRAY['zone_de_vegetation','.']
+];
+nb_valeur := array_length(liste_valeur, 1);
 
----- D. Mise en place des commentaires
----- D.1 adresse
-IF covadis is true
-	then
-		nom_table := 'n_adresse_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'adresse';
-		nomgeometrie := 'geometrie';
-END IF;
+FOR i_table IN 1..nb_valeur LOOP
+---- Récupération des champs
+---- Nom de la table
+	select
+		case
+			when COVADIS is false then 
+				lower(liste_valeur[i_table][1])
+			else
+				case
+					when millesime is not null then
+						'n_' || lower(liste_valeur[i_table][1]) || '_bdt_' || emprise || '_' || millesime
+					else
+						'n_' || lower(liste_valeur[i_table][1]) || '_bdt_' || emprise
+				end
+		end
+		 into nom_table;
+---- Nom du commentaire	
+	SELECT liste_valeur[i_table][2] into commentaires;
 
-IF EXISTS (SELECT relname FROM pg_class where relname=nom_table) THEN
-	---- Commentaire Table
-	req :='
-		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Point matérialisant une adresse postale'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-	---- Commentaire colonnes
-	req :='	
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.numero IS ''Numéro de l’adresse dans la voie, sans indice de répétition'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.numero_fictif IS ''Vrai si le numéro n´est pas un numéro définitif ou significatif'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.indice_de_repetition IS ''Indice de répétition'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.designation_de_l_entree IS ''Désignation de l’entrée précisant l’adresse dans les habitats collectifs'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nom_1 IS ''Nom principal de l’adresse : nom de la voie ou nom de lieu-dit le cas échéant'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nom_2 IS ''Nom secondaire de l´adresse : un éventuel nom de lieu-dit'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.insee_commune IS ''Numéro INSEE de la commune de l’adresse'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_postal IS ''Code postal de la commune'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cote IS ''Côté du tronçon de route où est située l’adresse (à droite ou à gauche) en fonction de son sens de numérisation du tronçon dans la base'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.type_de_localisation IS ''Localisation de l´adresse'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.methode IS ''Méthode de positionnement de l´adresse'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.alias IS ''Dénomination ancienne de la voie, un nom de la voie en langue régionale, une voie communale, ou un nom du lieu-dit relatif à l’adresse en usage local'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.lien_vers_objet_support_1 IS ''Identifiant de l´objet support 1 (Tronçon de route, Zone d´habitation, ...) de l’adresse'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.lien_vers_objet_support_2 IS ''Identifiant de l´objet support 2 (Tronçon de route, Zone d´habitation, ...) de l’adresse'';		
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en POINT.'';
-		';
-	RAISE NOTICE '%', req;
+---- Execution de la requete
+	IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) then
+		req := '
+				COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''' || commentaires || ''';
+				';
+		--RAISE NOTICE '%', req;
 		EXECUTE(req);
-END IF;
-
----- D.2 aerodrome
-IF covadis is true
-	then
-		nom_table := 'n_aerodrome_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
 	else
-		nom_table := 'aerodrome';
-		nomgeometrie := 'geometrie';
-END IF;
+		req := '
+				La table ' || nom_schema || '.' || nom_table || ' n´est pas présente.
+				';
+		RAISE NOTICE '%', req;
+	END IF;
 
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
-	---- Commentaire Table
-	req :='
-		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Tout terrain ou plan d’eau spécialement aménagé pour l’atterrissage, le décollage et les manoeuvres des aéronefs y compris les installations annexes qu’il peut comporter pour les besoins du trafic et le service des aéronefs'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-	---- Commentaire colonnes
-	req :='
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.etat_de_l_objet IS ''Etat ou stade d´un objet qui peut être en projet, en construction, en service ou non exploité'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.toponyme IS ''Toponyme de l´objet'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.statut_du_toponyme IS ''Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.fictif IS ''Indique que la géométrie de l´objet n´est pas précise (utilisé pour assurer l´exhaustivité d´une classe ou la continuité d´un réseau même lorsque la forme de ses éléments n´est pas connu avec précision)'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature IS ''Nature de l´aérodrome (Aérodrome, Altiport, Héliport, Hydrobase)'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.categorie IS ''Catégorie de l´aérodrome en fonction de la circulation aérienne'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.usage IS ''Usage de l´aérodrome (civil, militaire, privé)'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_icao IS ''Code ICAO (Organisation de l´Aviation Civile Internationale) de l´aérodrome '';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_iata IS ''Code IATA (International Air Transport Association) de l´aérodrome'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.altitude IS ''Altitude moyenne de l´aérodrome'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en MULTIPOLYGON.'';
-		';
-	RAISE NOTICE '%', req;
+END LOOP;
+
+---- B] Commentaires des attributs
+---- Liste des valeurs à passer :
+---- ARRAY['nom de la table telle que livrées par IGN','nom du champs dans le livraison SQL','nom du champs dans la livraison shapefile', 'Commentaires à passer']
+---- récupéré ici http://professionnels.ign.fr/doc/Structure_Nouvelle_BDTopo%20%285%29.xlsx
+liste_valeur := ARRAY[
+ARRAY['COMMUNE_ASSOCIEE_OU_DELEGUEE','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['COMMUNE_ASSOCIEE_OU_DELEGUEE','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['COMMUNE_ASSOCIEE_OU_DELEGUEE','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['COMMUNE_ASSOCIEE_OU_DELEGUEE','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['COMMUNE_ASSOCIEE_OU_DELEGUEE','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['COMMUNE_ASSOCIEE_OU_DELEGUEE','date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['COMMUNE_ASSOCIEE_OU_DELEGUEE','date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['COMMUNE_ASSOCIEE_OU_DELEGUEE','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['COMMUNE_ASSOCIEE_OU_DELEGUEE','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['COMMUNE_ASSOCIEE_OU_DELEGUEE','nature','NATURE','Nature : Nature de la commune associée ou déléguée.'],
+ARRAY['COMMUNE_ASSOCIEE_OU_DELEGUEE','code_insee','INSEE_CAD','Code INSEE : Code INSEE de la commune associée ou déléguée.'],
+ARRAY['COMMUNE_ASSOCIEE_OU_DELEGUEE','code_insee_de_la_commune_de_rattach','INSEE_COM','Code INSEE de la commune de rattach : Code INSEE de la commune de rattachement.'],
+ARRAY['COMMUNE_ASSOCIEE_OU_DELEGUEE','code_postal','CODE_POST','Code postal : Code postal utilisé pour la commune associée ou déléguée.'],
+ARRAY['COMMUNE_ASSOCIEE_OU_DELEGUEE','nom_officiel','NOM','Nom officiel : Nom officiel de la commune associée ou déléguée.'],
+ARRAY['COMMUNE_ASSOCIEE_OU_DELEGUEE','lien_vers_chef_lieu','ID_CH_LIEU','Lien vers chef-lieu : Lien vers la zone d´habitation chef-lieu de la commune associée ou déléguée.'],
+ARRAY['COMMUNE_ASSOCIEE_OU_DELEGUEE','liens_vers_autorite_administrative','ID_AUT_ADM','Liens vers autorité administrative : Lien vers l´annexe de la mairie ou la mairie annexe de la commune déléguée (zone d´activité ou d´intérêt).'],
+ARRAY['COMMUNE_ASSOCIEE_OU_DELEGUEE','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['ARRONDISSEMENT_MUNICIPAL','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['ARRONDISSEMENT_MUNICIPAL','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['ARRONDISSEMENT_MUNICIPAL','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['ARRONDISSEMENT_MUNICIPAL','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['ARRONDISSEMENT_MUNICIPAL','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['ARRONDISSEMENT_MUNICIPAL','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['ARRONDISSEMENT_MUNICIPAL','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['ARRONDISSEMENT_MUNICIPAL','code_insee','INSEE_ARM','Code INSEE : Code INSEE de l´arrondissement municipal.'],
+ARRAY['ARRONDISSEMENT_MUNICIPAL','code_insee_de_la_commune_de_rattach','INSEE_COM','Code INSEE de la commune de rattach : Code INSEE de la commune de rattachement.'],
+ARRAY['ARRONDISSEMENT_MUNICIPAL','code_postal','CODE_POST','Code postal : Code postal utilisé pour l´arrondissement municipal.'],
+ARRAY['ARRONDISSEMENT_MUNICIPAL','nom_officiel','NOM','Nom officiel : Nom officiel de l´arrondissement municipal.'],
+ARRAY['ARRONDISSEMENT_MUNICIPAL','lien_vers_chef_lieu','ID_CH_LIEU','Lien vers chef-lieu : Lien vers la zone d´habitation chef-lieu de l´arrondissement municipal.'],
+ARRAY['ARRONDISSEMENT_MUNICIPAL','liens_vers_autorite_administrative','ID_AUT_ADM','Liens vers autorité administrative : Lien vers la mairie d´arrondissement (zone d´activité ou d´intérêt).'],
+ARRAY['ARRONDISSEMENT_MUNICIPAL','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['COMMUNE','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['COMMUNE','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['COMMUNE','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['COMMUNE','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['COMMUNE','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['COMMUNE','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['COMMUNE','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['COMMUNE','code_insee','INSEE_COM','Code INSEE : Code insee de la commune sur 5 caractères.'],
+ARRAY['COMMUNE','code_insee_de_l_arrondissement','INSEE_ARR','Code INSEE de l´arrondissement : Code INSEE de l´arrondissement.'],
+ARRAY['COMMUNE','code_insee_de_la_collectivite_terr','INSEE_COL','Code INSEE de la collectivité terr : Code INSEE de la collectivité territoriale incluant cette commune.'],
+ARRAY['COMMUNE','code_insee_du_departement','INSEE_DEP','Code INSEE du département : Code INSEE du département sur 2 ou 3 caractères.'],
+ARRAY['COMMUNE','code_insee_de_la_region','INSEE_REG','Code INSEE de la région : Code INSEE de la région.'],
+ARRAY['COMMUNE','code_postal','CODE_POST','Code postal : Code postal utilisé pour la commune.'],
+ARRAY['COMMUNE','nom_officiel','NOM','Nom officiel : Nom officiel de la commune.'],
+ARRAY['COMMUNE','chef_lieu_d_arrondissement','CL_ARROND','Chef-lieu d´arrondissement : Indique que la commune est chef-lieu d´arrondissement.'],
+ARRAY['COMMUNE','chef_lieu_de_collectivite_terr','CL_COLLTER','Chef-lieu de collectivité terr : Indique que la commune est chef-lieu d´une collectivité départementale.'],
+ARRAY['COMMUNE','chef_lieu_de_departement','CL_DEPART','Chef-lieu de département : Indique que la commune est chef-lieu d´un département.'],
+ARRAY['COMMUNE','chef_lieu_de_region','CL_REGION','Chef-lieu de région : Indique que la commune est chef-lieu d´une région.'],
+ARRAY['COMMUNE','capitale_d_etat','CAPITALE','Capitale d´Etat : Indique que la commune est la capitale d´Etat.'],
+ARRAY['COMMUNE','date_du_recensement','DATE_RCT','Date du recensement : Date du recensement sur lequel s´appuie le chiffre de population.'],
+ARRAY['COMMUNE','organisme_recenseur','RECENSEUR','Organisme recenseur : Nom de l´organisme ayant effectué le recensement de population.'],
+ARRAY['COMMUNE','population','POPULATION','Population : Population sans double compte de la commune.'],
+ARRAY['COMMUNE','surface_en_ha','SURFACE_HA','Surface en ha : Superficie cadastrale de la commune telle que donnée par l´INSEE (en ha).'],
+ARRAY['COMMUNE','codes_siren_des_epci','SIREN_EPCI','Codes SIREN des EPCI : Codes SIREN de l´EPCI ou des EPCI auxquels appartient cette commune.'],
+ARRAY['COMMUNE','lien_vers_chef_lieu','ID_CH_LIEU','Lien vers chef-lieu : Lien vers la zone d´habitation chef-lieu de la commune.'],
+ARRAY['COMMUNE','liens_vers_autorite_administrative','ID_AUT_ADM','Liens vers autorité administrative : Lien vers la mairie de cette commune (zone d´activité ou d´intérêt).'],
+ARRAY['COMMUNE','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['ARRONDISSEMENT','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['ARRONDISSEMENT','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['ARRONDISSEMENT','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['ARRONDISSEMENT','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['ARRONDISSEMENT','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['ARRONDISSEMENT','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['ARRONDISSEMENT','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['ARRONDISSEMENT','code_insee_de_l_arrondissement','INSEE_ARR','Code INSEE : Code INSEE de l´arrondissement.'],
+ARRAY['ARRONDISSEMENT','code_insee_du_departement','INSEE_DEP','Code INSEE du département : Code INSEE du département.'],
+ARRAY['ARRONDISSEMENT','code_insee_de_la_region','INSEE_REG','Code INSEE de la région : Code INSEE de la région.'],
+ARRAY['ARRONDISSEMENT','nom_officiel','NOM','Nom officiel : Nom officiel de l´arrondissement.'],
+ARRAY['ARRONDISSEMENT','liens_vers_autorite_administrative','ID_AUT_ADM','Liens vers autorité administrative : Lien vers la sous-préfecture de l´arrondissement (zone d´activité ou d´intérêt).'],
+ARRAY['ARRONDISSEMENT','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['COLLECTIVITE_TERRITORIALE','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['COLLECTIVITE_TERRITORIALE','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['COLLECTIVITE_TERRITORIALE','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['COLLECTIVITE_TERRITORIALE','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['COLLECTIVITE_TERRITORIALE','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['COLLECTIVITE_TERRITORIALE','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['COLLECTIVITE_TERRITORIALE','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['COLLECTIVITE_TERRITORIALE','code_insee','INSEE_COL','Code INSEE : Code INSEE de la collectivité départementale (collectivité territoriale située entre la commune et la région).'],
+ARRAY['COLLECTIVITE_TERRITORIALE','code_insee_de_la_region','INSEE_REG','Code INSEE de la région : Code INSEE de la région.'],
+ARRAY['COLLECTIVITE_TERRITORIALE','nom_officiel','NOM','Nom officiel : Nom officiel de la collectivité départementale.'],
+ARRAY['COLLECTIVITE_TERRITORIALE','liens_vers_autorite_administrative','ID_AUT_ADM','Liens vers autorité administrative : Lien vers le siège du conseil de la collectivité (Zone d´activité ou d´intérêt).'],
+ARRAY['COLLECTIVITE_TERRITORIALE','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['DEPARTEMENT','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['DEPARTEMENT','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['DEPARTEMENT','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['DEPARTEMENT','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['DEPARTEMENT','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['DEPARTEMENT','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['DEPARTEMENT','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['DEPARTEMENT','code_insee','INSEE_DEP','Code INSEE : Code INSEE du département.'],
+ARRAY['DEPARTEMENT','code_insee_de_la_region','INSEE_REG','Code INSEE de la région : Code INSEE de la région.'],
+ARRAY['DEPARTEMENT','nom_officiel','NOM','Nom officiel : Nom officiel du département.'],
+ARRAY['DEPARTEMENT','liens_vers_autorite_administrative','ID_AUT_ADM','Liens vers autorité administrative : Lien vers la préfecture du département (zone d´activité ou d´intérêt).'],
+ARRAY['DEPARTEMENT','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['REGION','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['REGION','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['REGION','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['REGION','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['REGION','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['REGION','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['REGION','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['REGION','code_insee','INSEE_REG','Code INSEE : Code INSEE de la région.'],
+ARRAY['REGION','nom_officiel','NOM','Nom officiel : Nom officiel de la région.'],
+ARRAY['REGION','liens_vers_autorite_administrative','ID_AUT_ADM','Liens vers autorité administrative : Lien vers la préfecture de région (zone d´activité ou d´intérêt).'],
+ARRAY['REGION','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['EPCI','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['EPCI','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['EPCI','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['EPCI','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['EPCI','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['EPCI','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['EPCI','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['EPCI','nature','NATURE','Nature : Nature de l´EPCI.'],
+ARRAY['EPCI','code_siren','CODE_SIREN','Code SIREN : Code SIREN de l´EPCI.'],
+ARRAY['EPCI','nom_officiel','NOM','Nom officiel : Nom de l´EPCI.'],
+ARRAY['EPCI','liens_vers_autorite_administrative','ID_AUT_ADM','Liens vers autorité administrative : Lien vers le siège de l´autorité administrative de l´EPCI (zone d´activité ou d´intérêt).'],
+ARRAY['EPCI','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['CONDOMINIUM','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['CONDOMINIUM','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['CONDOMINIUM','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['CONDOMINIUM','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['CONDOMINIUM','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['CONDOMINIUM','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['CONDOMINIUM','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['CONDOMINIUM','unites_administratives_souveraines','PAYS_SOUVE','Unités administratives souveraines : Noms des unités administratives souveraines.'],
+ARRAY['CONDOMINIUM','lien_vers_lieu_dit','ID_LIEUDIT','Lien vers lieu-dit : Lien vers la zone d´habitation ou l´espace naturel décrivant ce lieu.'],
+ARRAY['CONDOMINIUM','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['TRONCON_DE_ROUTE','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['TRONCON_DE_ROUTE','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['TRONCON_DE_ROUTE','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['TRONCON_DE_ROUTE','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['TRONCON_DE_ROUTE','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['TRONCON_DE_ROUTE','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['TRONCON_DE_ROUTE','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['TRONCON_DE_ROUTE','etat_de_l_objet','ETAT','Etat de l´objet : Etat ou stade d´un objet qui peut être en projet, en construction ou en service.'],
+ARRAY['TRONCON_DE_ROUTE','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['TRONCON_DE_ROUTE','precision_altimetrique','PREC_ALTI','Précision altimétrique : Précision altimétrique de la géométrie décrivant l´objet.'],
+ARRAY['TRONCON_DE_ROUTE','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['TRONCON_DE_ROUTE','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['TRONCON_DE_ROUTE','importance','IMPORTANCE','Importance : Attribut permettant de hiérarchiser les objets d´une classe en fonction de leur importance relative.'],
+ARRAY['TRONCON_DE_ROUTE','fictif','FICTIF','Fictif : Indique que la géométrie de l´objet n´est pas précise (utilisé pour assurer l´exhaustivité d´une classe ou la continuité d´un réseau même lorsque la forme de ses éléments n´est pas connu avec précision).'],
+ARRAY['TRONCON_DE_ROUTE','nature','NATURE','Nature : Attribut permettant de classer un tronçon de route ou de chemin suivant ses caractéristiques physiques.'],
+ARRAY['TRONCON_DE_ROUTE','position_par_rapport_au_sol','POS_SOL','Position par rapport au sol : Position du tronçon par rapport au niveau du sol.'],
+ARRAY['TRONCON_DE_ROUTE','nombre_de_voies','NB_VOIES','Nombre de voies : Nombre total de voies de circulation tracées au sol ou effectivement utilisées, sur une route, une rue ou une chaussée de route à chaussées séparées.'],
+ARRAY['TRONCON_DE_ROUTE','largeur_de_chaussee','LARGEUR','Largeur de chaussée : Largeur de la chaussée, en mètres.'],
+ARRAY['TRONCON_DE_ROUTE','itineraire_vert','IT_VERT','Itinéraire vert : Indique l’appartenance ou non d’un tronçon routier au réseau vert.'],
+ARRAY['TRONCON_DE_ROUTE','date_de_mise_en_service','DATE_SERV','Date de mise en service : Date prévue ou la date effective de mise en service d’un tronçon de route.'],
+ARRAY['TRONCON_DE_ROUTE','prive','PRIVE','Privé : Indique le caractère privé d´un tronçon de route carrossable.'],
+ARRAY['TRONCON_DE_ROUTE','sens_de_circulation','SENS','Sens de circulation : Sens licite de circulation sur les voies pour les véhicules légers.'],
+ARRAY['TRONCON_DE_ROUTE','bande_cyclable','CYCLABLE','Bande cyclable : Sens de circulation sur les bandes cyclables.'],
+ARRAY['TRONCON_DE_ROUTE','reserve_aux_bus','BUS','Réservé aux bus : Sens de circulation sur les voies réservées au bus.'],
+ARRAY['TRONCON_DE_ROUTE','urbain','URBAIN','Urbain : Indique que le tronçon de route est situé en zone urbaine.'],
+ARRAY['TRONCON_DE_ROUTE','vitesse_moyenne_vl','VIT_MOY_VL','Vitesse moyenne VL : Vitesse moyenne des véhicules légers dans le sens direct.'],
+ARRAY['TRONCON_DE_ROUTE','acces_vehicule_leger','ACCES_VL','Accès véhicule léger : Conditions de circulation sur le tronçon pour un véhicule léger.'],
+ARRAY['TRONCON_DE_ROUTE','acces_pieton','ACCES_PED','Accès piéton : Conditions d´accès pour les piétons.'],
+ARRAY['TRONCON_DE_ROUTE','periode_de_fermeture','FERMETURE','Période de fermeture : Périodes pendant lesquelles le tronçon n´est pas accessible à la circulation automobile.'],
+ARRAY['TRONCON_DE_ROUTE','nature_de_la_restriction','NAT_RESTR','Nature de la restriction : Nature précise de la restriction sur un tronçon où la circulation automobile est restreinte.'],
+ARRAY['TRONCON_DE_ROUTE','restriction_de_hauteur','RESTR_H','Restriction de hauteur : Exprime l´interdiction de circuler pour les véhicules dépassant la hauteur indiquée.'],
+ARRAY['TRONCON_DE_ROUTE','restriction_de_poids_total','RESTR_P','Restriction de poids total : Exprime l´interdiction de circuler pour les véhicules dépassant le poids indiqué.'],
+ARRAY['TRONCON_DE_ROUTE','restriction_de_poids_par_essieu','RESTR_PPE','Restriction de poids par essieu : Exprime l´interdiction de circuler pour les véhicules dépassant le poids par essieu indiqué.'],
+ARRAY['TRONCON_DE_ROUTE','restriction_de_largeur','RESTR_LAR','Restriction de largeur : Exprime l´interdiction de circuler pour les véhicules dépassant la largeur indiquée.'],
+ARRAY['TRONCON_DE_ROUTE','restriction_de_longueur','RESTR_LON','Restriction de longueur : Exprime l´interdiction de circuler pour les véhicules dépassant la longueur indiquée.'],
+ARRAY['TRONCON_DE_ROUTE','matieres_dangereuses_interdites','RESTR_MAT','Matières dangereuses interdites : Exprime l´interdiction de circuler pour les véhicules transportant des matières dangereuses.'],
+ARRAY['TRONCON_DE_ROUTE','identifiant_voie_1_gauche','ID_VOIE_G','Identifiant voie 1 gauche : Identifiant de la voie pour le côté gauche du tronçon.'],
+ARRAY['TRONCON_DE_ROUTE','identifiant_voie_1_droite','ID_VOIE_D','Identifiant voie 1 droite : Identifiant de la voie pour le côté droit du tronçon.'],
+ARRAY['TRONCON_DE_ROUTE','nom_1_gauche','NOM_1_G','Nom 1 gauche : Nom principal de la rue, côté gauche du tronçon : nom de la voie ou nom de lieu-dit le cas échéant.'],
+ARRAY['TRONCON_DE_ROUTE','nom_1_droite','NOM_1_D','Nom 1 droite : Nom principal de la rue, côté droit du tronçon : nom de la voie ou nom de lieu-dit le cas échéant.'],
+ARRAY['TRONCON_DE_ROUTE','nom_2_gauche','NOM_2_G','Nom 2 gauche : Nom secondaire de la rue, côté gauche du tronçon (éventuel nom de lieu-dit).'],
+ARRAY['TRONCON_DE_ROUTE','nom_2_droite','NOM_2_D','Nom 2 droite : Nom secondaire de la rue, côté droit du tronçon (éventuel nom de lieu-dit).'],
+ARRAY['TRONCON_DE_ROUTE','borne_debut_gauche','BORNEDEB_G','Borne début gauche : Numéro de borne à gauche du tronçon en son sommet initial.'],
+ARRAY['TRONCON_DE_ROUTE','borne_debut_droite','BORNEDEB_D','Borne début droite : Numéro de borne à droite du tronçon en son sommet initial.'],
+ARRAY['TRONCON_DE_ROUTE','borne_fin_gauche','BORNEFIN_G','Borne fin gauche : Numéro de borne à gauche du tronçon en son sommet final.'],
+ARRAY['TRONCON_DE_ROUTE','borne_fin_droite','BORNEFIN_D','Borne fin droite : Numéro de borne à droite du tronçon en son sommet final.'],
+ARRAY['TRONCON_DE_ROUTE','insee_commune_gauche','INSEECOM_G','INSEE commune gauche : Code INSEE de la commune située à droite du tronçon.'],
+ARRAY['TRONCON_DE_ROUTE','insee_commune_droite','INSEECOM_D','INSEE commune droite : Code INSEE de la commune située à gauche du tronçon.'],
+ARRAY['TRONCON_DE_ROUTE','type_d_adressage_du_troncon','TYP_ADRES','Type d´adressage du tronçon : Type d´adressage du tronçon.'],
+ARRAY['TRONCON_DE_ROUTE','alias_gauche','ALIAS_G','Alias gauche : Ancien nom, nom en langue régionale ou désignation d’une voie communale utilisé pour le côté gauche de la rue.'],
+ARRAY['TRONCON_DE_ROUTE','alias_droit','ALIAS_D','Alias droit : Ancien nom, nom en langue régionale ou désignation d’une voie communale utilisé pour le côté droit de la rue.'],
+ARRAY['TRONCON_DE_ROUTE','code_postal_gauche','C_POSTAL_G','Code postal gauche : Code postal du bureau distributeur des adresses situées à gauche du tronçon par rapport à son sens de numérisation.'],
+ARRAY['TRONCON_DE_ROUTE','code_postal_droit','C_POSTAL_D','Code postal droit : Code postal du bureau distributeur des adresses situées à droite du tronçon par rapport à son sens de numérisation.'],
+ARRAY['TRONCON_DE_ROUTE','liens_vers_route_nommee','ID_RN','Liens vers route nommée : .'],
+ARRAY['TRONCON_DE_ROUTE','cpx_classement_administratif','CL_ADMIN','Type de route : Classement administratif de la route.'],
+ARRAY['TRONCON_DE_ROUTE','cpx_numero','NUMERO','Numéro : Numéro d´une route classée.'],
+ARRAY['TRONCON_DE_ROUTE','cpx_gestionnaire','GESTION','Gestionnaire : Gestionnaire d´une route classée.'],
+ARRAY['TRONCON_DE_ROUTE','cpx_numero_route_europeenne','NUM_EUROP','Numéro : Numéro d´une route européenne.'],
+ARRAY['TRONCON_DE_ROUTE','cpx_toponyme_route_nommee','TOPONYME','Toponyme : Toponyme d´une route nommée (n´inclut pas les noms de rue).'],
+ARRAY['TRONCON_DE_ROUTE','cpx_toponyme_itineraire_cyclable','ITI_CYCL','Toponyme : Nom d´un itinéraire cyclable.'],
+ARRAY['TRONCON_DE_ROUTE','cpx_toponyme_voie_verte','VOIE_VERTE','Toponyme : Nom d´une voie verte.'],
+ARRAY['TRONCON_DE_ROUTE','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['NON_COMMUNICATION','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['NON_COMMUNICATION','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['NON_COMMUNICATION','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['NON_COMMUNICATION','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['NON_COMMUNICATION','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['NON_COMMUNICATION','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['NON_COMMUNICATION','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['NON_COMMUNICATION','lien_vers_troncon_entree','ID_TR_ENT','Lien vers tronçon entrée : Identifiant du tronçon à partir duquel on ne peut se rendre vers les tronçons sortants de ce nœud.'],
+ARRAY['NON_COMMUNICATION','liens_vers_troncon_sortie','ID_TR_SOR','Liens vers tronçon sortie : Identifiant des tronçons constituant le chemin vers lequel on ne peut se rendre à partir du tronçon entrant de ce nœud.'],
+ARRAY['NON_COMMUNICATION','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['ROUTE_NUMEROTEE_OU_NOMMEE','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['ROUTE_NUMEROTEE_OU_NOMMEE','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['ROUTE_NUMEROTEE_OU_NOMMEE','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['ROUTE_NUMEROTEE_OU_NOMMEE','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['ROUTE_NUMEROTEE_OU_NOMMEE','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['ROUTE_NUMEROTEE_OU_NOMMEE','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['ROUTE_NUMEROTEE_OU_NOMMEE','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['ROUTE_NUMEROTEE_OU_NOMMEE','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['ROUTE_NUMEROTEE_OU_NOMMEE','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['ROUTE_NUMEROTEE_OU_NOMMEE','toponyme','TOPONYME','Toponyme : Toponyme de l´objet.'],
+ARRAY['ROUTE_NUMEROTEE_OU_NOMMEE','statut_du_toponyme','STATUT_TOP','Statut du toponyme : Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité.'],
+ARRAY['ROUTE_NUMEROTEE_OU_NOMMEE','type_de_route','TYPE_ROUTE','Type de route : Statut d´une route numérotée ou nommée.'],
+ARRAY['ROUTE_NUMEROTEE_OU_NOMMEE','gestionnaire','GESTION','Gestionnaire : Gestionnaire administratif de la route.'],
+ARRAY['ROUTE_NUMEROTEE_OU_NOMMEE','numero','NUMERO','Numéro : Numéro de la route.'],
+ARRAY['ROUTE_NUMEROTEE_OU_NOMMEE','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['POINT_DE_REPERE','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['POINT_DE_REPERE','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['POINT_DE_REPERE','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['POINT_DE_REPERE','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['POINT_DE_REPERE','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['POINT_DE_REPERE','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['POINT_DE_REPERE','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['POINT_DE_REPERE','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['POINT_DE_REPERE','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['POINT_DE_REPERE','code_insee_du_departement','INSEE_DEP','Code INSEE du département : Code INSEE du département.'],
+ARRAY['POINT_DE_REPERE','route','ROUTE','Route : Numéro de la route classée à laquelle le PR est associé.'],
+ARRAY['POINT_DE_REPERE','numero','NUMERO','Numéro : Numéro du PR propre à la route à laquelle il est associé.'],
+ARRAY['POINT_DE_REPERE','abscisse','ABSCISSE','Abscisse : Abscisse du PR le long de la route à laquelle il est associé.'],
+ARRAY['POINT_DE_REPERE','cote','COTE','Côté : Côté de la route où se situe le PR par rapport au sens des PR croissants .'],
+ARRAY['POINT_DE_REPERE','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['EQUIPEMENT_DE_TRANSPORT','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['EQUIPEMENT_DE_TRANSPORT','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['EQUIPEMENT_DE_TRANSPORT','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['EQUIPEMENT_DE_TRANSPORT','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['EQUIPEMENT_DE_TRANSPORT','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['EQUIPEMENT_DE_TRANSPORT','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['EQUIPEMENT_DE_TRANSPORT','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['EQUIPEMENT_DE_TRANSPORT','etat_de_l_objet','ETAT','Etat de l´objet transport : Etat ou stade d´un objet qui peut être en projet, en construction, en service ou non exploité.'],
+ARRAY['EQUIPEMENT_DE_TRANSPORT','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['EQUIPEMENT_DE_TRANSPORT','precision_altimetrique','PREC_ALTI','Précision altimétrique : Précision altimétrique de la géométrie décrivant l´objet.'],
+ARRAY['EQUIPEMENT_DE_TRANSPORT','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['EQUIPEMENT_DE_TRANSPORT','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['EQUIPEMENT_DE_TRANSPORT','importance','IMPORTANCE','Importance : Attribut permettant de hiérarchiser les objets d´une classe en fonction de leur importance relative.'],
+ARRAY['EQUIPEMENT_DE_TRANSPORT','toponyme','TOPONYME','Toponyme : Toponyme de l´objet.'],
+ARRAY['EQUIPEMENT_DE_TRANSPORT','statut_du_toponyme','STATUT_TOP','Statut du toponyme : Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité.'],
+ARRAY['EQUIPEMENT_DE_TRANSPORT','fictif','FICTIF','Fictif : Indique que la géométrie de l´objet n´est pas précise (utilisé pour assurer l´exhaustivité d´une classe ou la continuité d´un réseau même lorsque la forme de ses éléments n´est pas connu avec précision).'],
+ARRAY['EQUIPEMENT_DE_TRANSPORT','nature','NATURE','Nature : Nature de l´équipement.'],
+ARRAY['EQUIPEMENT_DE_TRANSPORT','nature_detaillee','NAT_DETAIL','Nature détaillée : Nature précise de l´équipement.'],
+ARRAY['EQUIPEMENT_DE_TRANSPORT','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['POINT_DU_RESEAU','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['POINT_DU_RESEAU','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['POINT_DU_RESEAU','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['POINT_DU_RESEAU','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['POINT_DU_RESEAU','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['POINT_DU_RESEAU','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['POINT_DU_RESEAU','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['POINT_DU_RESEAU','etat_de_l_objet','ETAT','Etat de l´objet transport : Etat ou stade d´un objet qui peut être en projet, en construction, en service ou non exploité.'],
+ARRAY['POINT_DU_RESEAU','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['POINT_DU_RESEAU','precision_altimetrique','PREC_ALTI','Précision altimétrique : Précision altimétrique de la géométrie décrivant l´objet.'],
+ARRAY['POINT_DU_RESEAU','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['POINT_DU_RESEAU','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['POINT_DU_RESEAU','toponyme','TOPONYME','Toponyme : Toponyme de l´objet.'],
+ARRAY['POINT_DU_RESEAU','statut_du_toponyme','STATUT_TOP','Statut du toponyme : Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité.'],
+ARRAY['POINT_DU_RESEAU','nature','NATURE','Nature : Nature d´un point particulier situé sur un réseau de communication.'],
+ARRAY['POINT_DU_RESEAU','nature_detaillee','NAT_DETAIL','Nature détaillée : Attribut précisant la nature d´un point particulier situé sur un réseau de communication.'],
+ARRAY['POINT_DU_RESEAU','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['POINT_D_ACCES','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['POINT_D_ACCES','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['POINT_D_ACCES','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['POINT_D_ACCES','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['POINT_D_ACCES','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['POINT_D_ACCES','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['POINT_D_ACCES','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['POINT_D_ACCES','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['POINT_D_ACCES','sens','SENS','Sens : Indique si ce point d´accès à un équipement correspond à une entrée, une sortie ou aux deux.'],
+ARRAY['POINT_D_ACCES','mode','MODE','Mode : Précise à qui est destiné le point d´accès.'],
+ARRAY['POINT_D_ACCES','lien_vers_point_d_interet','ID_POI','Lien vers point d´intérêt : .'],
+ARRAY['POINT_D_ACCESS','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['PISTE_D_AERODROME','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['PISTE_D_AERODROME','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['PISTE_D_AERODROME','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['PISTE_D_AERODROME','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['PISTE_D_AERODROME','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['PISTE_D_AERODROME','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['PISTE_D_AERODROME','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['PISTE_D_AERODROME','etat_de_l_objet','ETAT','Etat de l´objet transport : Etat ou stade d´un objet qui peut être en projet, en construction, en service ou non exploité.'],
+ARRAY['PISTE_D_AERODROME','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['PISTE_D_AERODROME','precision_altimetrique','PREC_ALTI','Précision altimétrique : Précision altimétrique de la géométrie décrivant l´objet.'],
+ARRAY['PISTE_D_AERODROME','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['PISTE_D_AERODROME','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['PISTE_D_AERODROME','nature','NATURE','Nature : Attribut précisant le revêtement de la piste.'],
+ARRAY['PISTE_D_AERODROME','fonction','FONCTION','Fonction : Fonction associée à la piste.'],
+ARRAY['PISTE_D_AERODROME','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['AERODROME','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['AERODROME','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['AERODROME','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['AERODROME','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['AERODROME','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['AERODROME','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['AERODROME','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['AERODROME','etat_de_l_objet','ETAT','Etat de l´objet transport : Etat ou stade d´un objet qui peut être en projet, en construction, en service ou non exploité.'],
+ARRAY['AERODROME','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['AERODROME','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['AERODROME','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['AERODROME','toponyme','TOPONYME','Toponyme : Toponyme de l´objet.'],
+ARRAY['AERODROME','statut_du_toponyme','STATUT_TOP','Statut du toponyme : Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité.'],
+ARRAY['AERODROME','fictif','FICTIF','Fictif : Indique que la géométrie de l´objet n´est pas précise (utilisé pour assurer l´exhaustivité d´une classe ou la continuité d´un réseau même lorsque la forme de ses éléments n´est pas connu avec précision).'],
+ARRAY['AERODROME','nature','NATURE','Nature : Nature de l´aérodrome (Aérodrome, Altiport, Héliport, Hydrobase).'],
+ARRAY['AERODROME','categorie','CATEGORIE','Catégorie : Catégorie de l´aérodrome en fonction de la circulation aérienne.'],
+ARRAY['AERODROME','usage','USAGE','Usage : Usage de l´aérodrome (civil, militaire, privé).'],
+ARRAY['AERODROME','code_icao','CODE_ICAO','Code ICAO : Code ICAO (Organisation de l´Aviation Civile Internationale) de l´aérodrome .'],
+ARRAY['AERODROME','code_iata','CODE_IATA','Code IATA : Code IATA (International Air Transport Association) de l´aérodrome.'],
+ARRAY['AERODROME','altitude','ALTITUDE','Altitude : Altitude moyenne de l´aérodrome.'],
+ARRAY['AERODROME','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['TRONCON_DE_VOIE_FERREE','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['TRONCON_DE_VOIE_FERREE','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['TRONCON_DE_VOIE_FERREE','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['TRONCON_DE_VOIE_FERREE','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['TRONCON_DE_VOIE_FERREE','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['TRONCON_DE_VOIE_FERREE','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['TRONCON_DE_VOIE_FERREE','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['TRONCON_DE_VOIE_FERREE','etat_de_l_objet','ETAT','Etat de l´objet transport : Etat ou stade d´un objet qui peut être en projet, en construction, en service ou non exploité.'],
+ARRAY['TRONCON_DE_VOIE_FERREE','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['TRONCON_DE_VOIE_FERREE','precision_altimetrique','PREC_ALTI','Précision altimétrique : Précision altimétrique de la géométrie décrivant l´objet.'],
+ARRAY['TRONCON_DE_VOIE_FERREE','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['TRONCON_DE_VOIE_FERREE','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['TRONCON_DE_VOIE_FERREE','nature','NATURE','Nature : Attribut permettant de distinguer plusieurs types de voies ferrées selon leur fonction.'],
+ARRAY['TRONCON_DE_VOIE_FERREE','electrifie','ELECTRIFIE','Electrifié : Indique si la voie ferrée est électrifiée.'],
+ARRAY['TRONCON_DE_VOIE_FERREE','largeur','LARGEUR','Largeur : Attribut permettant de distinguer les voies ferrées de largeur standard pour la France (1,435 m), des voies ferrées plus larges ou plus étroites.'],
+ARRAY['TRONCON_DE_VOIE_FERREE','nombre_de_voies','NB_VOIES','Nombre de voies : Attribut indiquant si une ligne de chemin de fer est constituée d´une seule voie ferrée ou de plusieurs.'],
+ARRAY['TRONCON_DE_VOIE_FERREE','position_par_rapport_au_sol','POS_SOL','Position par rapport au sol : Niveau de l’objet par rapport à la surface du sol (valeur négative pour un objet souterrain, nulle pour un objet au sol et positive pour un objet en sursol).'],
+ARRAY['TRONCON_DE_VOIE_FERREE','usage','USAGE','Usage : Précise le type de transport auquel la voie ferrée est destinée.'],
+ARRAY['TRONCON_DE_VOIE_FERREE','vitesse_maximale','VITES_MAX','Vitesse maximale : Vitesse maximale pour laquelle la ligne a été construite.'],
+ARRAY['TRONCON_DE_VOIE_FERREE','liens_vers_voie_ferree_nommee','ID_VFN','Liens vers voie ferrée nommée : .'],
+ARRAY['TRONCON_DE_VOIE_FERREE','cpx_toponyme','TOPONYME','Toponyme : Nom de la ligne ferroviaire.'],
+ARRAY['TRONCON_DE_VOIE_FERREE','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['VOIE_FERREE_NOMMEE','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['VOIE_FERREE_NOMMEE','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['VOIE_FERREE_NOMMEE','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['VOIE_FERREE_NOMMEE','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['VOIE_FERREE_NOMMEE','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['VOIE_FERREE_NOMMEE','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['VOIE_FERREE_NOMMEE','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['VOIE_FERREE_NOMMEE','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['VOIE_FERREE_NOMMEE','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['VOIE_FERREE_NOMMEE','toponyme','TOPONYME','Toponyme : Toponyme de l´objet.'],
+ARRAY['VOIE_FERREE_NOMMEE','statut_du_toponyme','STATUT_TOP','Statut du toponyme : Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité.'],
+ARRAY['VOIE_FERREE_NOMMEE','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['TRANSPORT_PAR_CABLE','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['TRANSPORT_PAR_CABLE','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['TRANSPORT_PAR_CABLE','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['TRANSPORT_PAR_CABLE','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['TRANSPORT_PAR_CABLE','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['TRANSPORT_PAR_CABLE','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['TRANSPORT_PAR_CABLE','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['TRANSPORT_PAR_CABLE','etat_de_l_objet','ETAT','Etat de l´objet transport : Etat ou stade d´un objet qui peut être en projet, en construction, en service ou non exploité.'],
+ARRAY['TRANSPORT_PAR_CABLE','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['TRANSPORT_PAR_CABLE','precision_altimetrique','PREC_ALTI','Précision altimétrique : Précision altimétrique de la géométrie décrivant l´objet.'],
+ARRAY['TRANSPORT_PAR_CABLE','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['TRANSPORT_PAR_CABLE','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['TRANSPORT_PAR_CABLE','importance','IMPORTANCE','Importance : Attribut permettant de hiérarchiser les objets d´une classe en fonction de leur importance relative.'],
+ARRAY['TRANSPORT_PAR_CABLE','toponyme','TOPONYME','Toponyme : Toponyme de l´objet.'],
+ARRAY['TRANSPORT_PAR_CABLE','statut_du_toponyme','STATUT_TOP','Statut du toponyme : Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité.'],
+ARRAY['TRANSPORT_PAR_CABLE','nature','NATURE','Nature : Attribut permettant de distinguer différents types de transport par câble.'],
+ARRAY['TRANSPORT_PAR_CABLE','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['TOPONYMIE_TRANSPORT','cleabs_de_l_objet','ID',' : Identifiant de l´objet topographique auquel se rapporte ce toponyme.'],
+ARRAY['TOPONYMIE_TRANSPORT','classe_de_l_objet','CLASSE',' : Classe ou table où est situé l´objet topographique auquel se rapporte ce toponyme.'],
+ARRAY['TOPONYMIE_TRANSPORT','nature_de_l_objet','NATURE',' : Nature de l´objet nommé (généralement issu de l´attribut nature de cet objet).'],
+ARRAY['TOPONYMIE_TRANSPORT','graphie_du_toponyme','GRAPHIE',' : Une des graphies possibles pour décrire l´objet topographique.'],
+ARRAY['TOPONYMIE_TRANSPORT','source_du_toponyme','SOURCE',' : Source de la graphie (peut être différent de la source de l´objet topographique lui-même).'],
+ARRAY['TOPONYMIE_TRANSPORT','statut_du_toponyme','STATUT_TOP',' : Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité.'],
+ARRAY['TOPONYMIE_TRANSPORT','date_du_toponyme','DATE_TOP',' : Date d´enregistrement ou de validation du toponyme.'],
+ARRAY['TOPONYMIE_TRANSPORT','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['BATIMENT','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['BATIMENT','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['BATIMENT','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['BATIMENT','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['BATIMENT','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['BATIMENT','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['BATIMENT','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['BATIMENT','etat_de_l_objet','ETAT','Etat de l´objet bati : Etat ou stade d´un objet qui peut être en projet, en construction, en service ou en ruines.'],
+ARRAY['BATIMENT','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['BATIMENT','precision_altimetrique','PREC_ALTI','Précision altimétrique : Précision altimétrique de la géométrie décrivant l´objet.'],
+ARRAY['BATIMENT','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['BATIMENT','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['BATIMENT','nature','NATURE','Nature : Attribut permettant de distinguer différents types de bâtiments selon leur architecture.'],
+ARRAY['BATIMENT','origine_du_batiment','ORIGIN_BAT','Origine du bâtiment : Attribut indiquant si la géométrie du bâtiment est issue de l´imagerie aérienne ou du cadastre.'],
+ARRAY['BATIMENT','usage_1','USAGE1','Usage 1 : Usage principal du bâtiment.'],
+ARRAY['BATIMENT','usage_2','USAGE2','Usage 2 : Usage secondaire du bâtiment.'],
+ARRAY['BATIMENT','construction_legere','LEGER','Construction légère : Indique qu´il s´agit d´une structure légère, non attachée au sol par l´intermédiaire de fondations, ou d´un bâtiment ou partie de bâtiment ouvert sur au moins un côté.'],
+ARRAY['BATIMENT','hauteur','HAUTEUR','Hauteur : Hauteur du bâtiment mesuré entre le sol et la gouttière (altitude maximum de la polyligne décrivant le bâtiment).'],
+ARRAY['BATIMENT','nombre_d_etages','NB_ETAGES','Nombre d´étages : Nombre total d´étages du bâtiment.'],
+ARRAY['BATIMENT','nombre_de_logements','NB_LOGTS','Nombre de logements : Nombre de logements dans le bâtiment.'],
+ARRAY['BATIMENT','materiaux_des_murs','MAT_MURS','Matériaux des murs : Code sur 2 caractères : http://piece-jointe-carto.developpement-durable.gouv.fr/NAT004/DTerNP/html3/annexes/desc_pb40_pevprincipale_dmatgm.html.'],
+ARRAY['BATIMENT','materiaux_de_la_toiture','MAT_TOITS','Matériaux de la toiture : Code sur 2 caractères : http://piece-jointe-carto.developpement-durable.gouv.fr/NAT004/DTerNP/html3/annexes/desc_pb40_pevprincipale_dmatto.html.'],
+ARRAY['BATIMENT','altitude_maximale_sol','Z_MAX_SOL','Altitude maximale sol : Altitude maximale au pied de la construction.'],
+ARRAY['BATIMENT','altitude_maximale_toit','Z_MAX_TOIT','Altitude maximale toit : Altitude maximale du toit, c’est-à-dire au faîte du toit.'],
+ARRAY['BATIMENT','altitude_minimale_sol','Z_MIN_SOL','Altitude minimale sol : Altitude minimale au pied de la construction.'],
+ARRAY['BATIMENT','altitude_minimale_toit','Z_MIN_TOIT','Altitude minimale toit : Altitude minimale du toit, c’est-à-dire au bord du toit ou à la gouttière.'],
+ARRAY['BATIMENT','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['CONSTRUCTION_SURFACIQUE','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['CONSTRUCTION_SURFACIQUE','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['CONSTRUCTION_SURFACIQUE','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['CONSTRUCTION_SURFACIQUE','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['CONSTRUCTION_SURFACIQUE','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['CONSTRUCTION_SURFACIQUE','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['CONSTRUCTION_SURFACIQUE','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['CONSTRUCTION_SURFACIQUE','etat_de_l_objet','ETAT','Etat de l´objet bati : Etat ou stade d´un objet qui peut être en projet, en construction, en service ou en ruines.'],
+ARRAY['CONSTRUCTION_SURFACIQUE','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['CONSTRUCTION_SURFACIQUE','precision_altimetrique','PREC_ALTI','Précision altimétrique : Précision altimétrique de la géométrie décrivant l´objet.'],
+ARRAY['CONSTRUCTION_SURFACIQUE','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['CONSTRUCTION_SURFACIQUE','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['CONSTRUCTION_SURFACIQUE','importance','IMPORTANCE','Importance : Attribut permettant de hiérarchiser les objets d´une classe en fonction de leur importance relative.'],
+ARRAY['CONSTRUCTION_SURFACIQUE','toponyme','TOPONYME','Toponyme : Toponyme de l´objet.'],
+ARRAY['CONSTRUCTION_SURFACIQUE','statut_du_toponyme','STATUT_TOP','Statut du toponyme : Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité.'],
+ARRAY['CONSTRUCTION_SURFACIQUE','nature','NATURE','Nature : Nature de la construction.'],
+ARRAY['CONSTRUCTION_SURFACIQUE','nature_detaillee','NAT_DETAIL','Nature détaillée : Nature précise de la construction.'],
+ARRAY['CONSTRUCTION_SURFACIQUE','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['RESERVOIR','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['RESERVOIR','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['RESERVOIR','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['RESERVOIR','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['RESERVOIR','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['RESERVOIR','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['RESERVOIR','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['RESERVOIR','etat_de_l_objet','ETAT','Etat de l´objet bati : Etat ou stade d´un objet qui peut être en projet, en construction, en service ou en ruines.'],
+ARRAY['RESERVOIR','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['RESERVOIR','precision_altimetrique','PREC_ALTI','Précision altimétrique : Précision altimétrique de la géométrie décrivant l´objet.'],
+ARRAY['RESERVOIR','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['RESERVOIR','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['RESERVOIR','nature','NATURE','Nature : Nature du réservoir.'],
+ARRAY['RESERVOIR','hauteur','HAUTEUR','Hauteur : Hauteur du réservoir.'],
+ARRAY['RESERVOIR','altitude_maximale_sol','Z_MAX_SOL','Altitude maximale sol : Altitude maximale au pied de la construction.'],
+ARRAY['RESERVOIR','altitude_maximale_toit','Z_MAX_TOIT','Altitude maximale toit : Altitude maximale du toit.'],
+ARRAY['RESERVOIR','altitude_minimale_sol','Z_MIN_SOL','Altitude minimale sol : Altitude minimale au pied de la construction.'],
+ARRAY['RESERVOIR','altitude_minimale_toit','Z_MIN_TOIT','Altitude minimale toit : Altitude minimale du toit.'],
+ARRAY['RESERVOIR','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['TERRAIN_DE_SPORT','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['TERRAIN_DE_SPORT','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['TERRAIN_DE_SPORT','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['TERRAIN_DE_SPORT','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['TERRAIN_DE_SPORT','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['TERRAIN_DE_SPORT','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['TERRAIN_DE_SPORT','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['TERRAIN_DE_SPORT','etat_de_l_objet','ETAT','Etat de l´objet bati : Etat ou stade d´un objet qui peut être en projet, en construction, en service ou en ruines.'],
+ARRAY['TERRAIN_DE_SPORT','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['TERRAIN_DE_SPORT','precision_altimetrique','PREC_ALTI','Précision altimétrique : Précision altimétrique de la géométrie décrivant l´objet.'],
+ARRAY['TERRAIN_DE_SPORT','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['TERRAIN_DE_SPORT','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['TERRAIN_DE_SPORT','nature','NATURE','Nature : Nature du terrain de sport.'],
+ARRAY['TERRAIN_DE_SPORT','nature_detaillee','NAT_DETAIL','Nature détaillée : Nature précise du terrain de sport.'],
+ARRAY['TERRAIN_DE_SPORT','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['CIMETIERE','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['CIMETIERE','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['CIMETIERE','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['CIMETIERE','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['CIMETIERE','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['CIMETIERE','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['CIMETIERE','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['CIMETIERE','etat_de_l_objet','ETAT','Etat de l´objet bati : Etat ou stade d´un objet qui peut être en projet, en construction, en service ou en ruines.'],
+ARRAY['CIMETIERE','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['CIMETIERE','precision_altimetrique','PREC_ALTI','Précision altimétrique : Précision altimétrique de la géométrie décrivant l´objet.'],
+ARRAY['CIMETIERE','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['CIMETIERE','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['CIMETIERE','importance','IMPORTANCE','Importance : Attribut permettant de hiérarchiser les objets d´une classe en fonction de leur importance relative.'],
+ARRAY['CIMETIERE','toponyme','TOPONYME','Toponyme : Toponyme de l´objet.'],
+ARRAY['CIMETIERE','statut_du_toponyme','STATUT_TOP','Statut du toponyme : Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité.'],
+ARRAY['CIMETIERE','nature','NATURE','Nature : Attribut permettant de distinguer les cimetières civils des cimetières militaires.'],
+ARRAY['CIMETIERE','nature_detaillee','NAT_DETAIL','Nature détaillée : Nature précise du cimetière.'],
+ARRAY['CIMETIERE','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['CONSTRUCTION_LINEAIRE','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['CONSTRUCTION_LINEAIRE','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['CONSTRUCTION_LINEAIRE','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['CONSTRUCTION_LINEAIRE','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['CONSTRUCTION_LINEAIRE','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['CONSTRUCTION_LINEAIRE','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['CONSTRUCTION_LINEAIRE','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['CONSTRUCTION_LINEAIRE','etat_de_l_objet','ETAT','Etat de l´objet bati : Etat ou stade d´un objet qui peut être en projet, en construction, en service ou en ruines.'],
+ARRAY['CONSTRUCTION_LINEAIRE','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['CONSTRUCTION_LINEAIRE','precision_altimetrique','PREC_ALTI','Précision altimétrique : Précision altimétrique de la géométrie décrivant l´objet.'],
+ARRAY['CONSTRUCTION_LINEAIRE','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['CONSTRUCTION_LINEAIRE','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['CONSTRUCTION_LINEAIRE','importance','IMPORTANCE','Importance : Attribut permettant de hiérarchiser les objets d´une classe en fonction de leur importance relative.'],
+ARRAY['CONSTRUCTION_LINEAIRE','toponyme','TOPONYME','Toponyme : Toponyme de l´objet.'],
+ARRAY['CONSTRUCTION_LINEAIRE','statut_du_toponyme','STATUT_TOP','Statut du toponyme : Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité.'],
+ARRAY['CONSTRUCTION_LINEAIRE','nature','NATURE','Nature : Nature de la construction.'],
+ARRAY['CONSTRUCTION_LINEAIRE','nature_detaillee','NAT_DETAIL','Nature détaillée : Nature précise de la construction.'],
+ARRAY['CONSTRUCTION_LINEAIRE','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['CONSTRUCTION_PONCTUELLE','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['CONSTRUCTION_PONCTUELLE','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['CONSTRUCTION_PONCTUELLE','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['CONSTRUCTION_PONCTUELLE','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['CONSTRUCTION_PONCTUELLE','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['CONSTRUCTION_PONCTUELLE','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['CONSTRUCTION_PONCTUELLE','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['CONSTRUCTION_PONCTUELLE','etat_de_l_objet','ETAT','Etat de l´objet bati : Etat ou stade d´un objet qui peut être en projet, en construction, en service ou en ruines.'],
+ARRAY['CONSTRUCTION_PONCTUELLE','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['CONSTRUCTION_PONCTUELLE','precision_altimetrique','PREC_ALTI','Précision altimétrique : Précision altimétrique de la géométrie décrivant l´objet.'],
+ARRAY['CONSTRUCTION_PONCTUELLE','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['CONSTRUCTION_PONCTUELLE','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['CONSTRUCTION_PONCTUELLE','importance','IMPORTANCE','Importance : Attribut permettant de hiérarchiser les objets d´une classe en fonction de leur importance relative.'],
+ARRAY['CONSTRUCTION_PONCTUELLE','toponyme','TOPONYME','Toponyme : Toponyme de l´objet.'],
+ARRAY['CONSTRUCTION_PONCTUELLE','statut_du_toponyme','STATUT_TOP','Statut du toponyme : Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité.'],
+ARRAY['CONSTRUCTION_PONCTUELLE','nature','NATURE','Nature : Nature de la construction.'],
+ARRAY['CONSTRUCTION_PONCTUELLE','nature_detaillee','NAT_DETAIL','Nature détaillée : Nature précise de la construction.'],
+ARRAY['CONSTRUCTION_PONCTUELLE','hauteur','HAUTEUR','Hauteur : Hauteur de la construction.'],
+ARRAY['CONSTRUCTION_PONCTUELLE','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['PYLONE','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['PYLONE','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['PYLONE','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['PYLONE','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['PYLONE','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['PYLONE','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['PYLONE','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['PYLONE','etat_de_l_objet','ETAT','Etat de l´objet bati : Etat ou stade d´un objet qui peut être en projet, en construction ou en service.'],
+ARRAY['PYLONE','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['PYLONE','precision_altimetrique','PREC_ALTI','Précision altimétrique : Précision altimétrique de la géométrie décrivant l´objet.'],
+ARRAY['PYLONE','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['PYLONE','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['PYLONE','hauteur','HAUTEUR','Hauteur : Hauteur du pylône.'],
+ARRAY['PYLONE','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['LIGNE_OROGRAPHIQUE','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['LIGNE_OROGRAPHIQUE','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['LIGNE_OROGRAPHIQUE','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['LIGNE_OROGRAPHIQUE','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['LIGNE_OROGRAPHIQUE','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['LIGNE_OROGRAPHIQUE','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['LIGNE_OROGRAPHIQUE','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['LIGNE_OROGRAPHIQUE','etat_de_l_objet','ETAT','Etat de l´objet bati : Etat ou stade d´un objet qui peut être en projet, en construction ou en service.'],
+ARRAY['LIGNE_OROGRAPHIQUE','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['LIGNE_OROGRAPHIQUE','precision_altimetrique','PREC_ALTI','Précision altimétrique : Précision altimétrique de la géométrie décrivant l´objet.'],
+ARRAY['LIGNE_OROGRAPHIQUE','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['LIGNE_OROGRAPHIQUE','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['LIGNE_OROGRAPHIQUE','nature','NATURE','Nature : Nature de la ligne orographique.'],
+ARRAY['LIGNE_OROGRAPHIQUE','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['TOPONYMIE_BATI','cleabs_de_l_objet','ID',' : Identifiant de l´objet topographique auquel se rapporte ce toponyme.'],
+ARRAY['TOPONYMIE_BATI','classe_de_l_objet','CLASSE',' : Classe ou table où est situé l´objet topographique auquel se rapporte ce toponyme.'],
+ARRAY['TOPONYMIE_BATI','nature_de_l_objet','NATURE',' : Nature de l´objet nommé (généralement issu de l´attribut nature de cet objet).'],
+ARRAY['TOPONYMIE_BATI','graphie_du_toponyme','GRAPHIE',' : Une des graphies possibles pour décrire l´objet topographique.'],
+ARRAY['TOPONYMIE_BATI','source_du_toponyme','SOURCE',' : Source de la graphie (peut être différent de la source de l´objet topographique lui-même).'],
+ARRAY['TOPONYMIE_BATI','statut_du_toponyme','STATUT_TOP',' : Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité.'],
+ARRAY['TOPONYMIE_BATI','date_du_toponyme','DATE_TOP',' : Date d´enregistrement ou de validation du toponyme.'],
+ARRAY['TOPONYMIE_BATI','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['ZONE_D_ACTIVITE_OU_D_INTERET','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['ZONE_D_ACTIVITE_OU_D_INTERET','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['ZONE_D_ACTIVITE_OU_D_INTERET','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['ZONE_D_ACTIVITE_OU_D_INTERET','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['ZONE_D_ACTIVITE_OU_D_INTERET','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['ZONE_D_ACTIVITE_OU_D_INTERET','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['ZONE_D_ACTIVITE_OU_D_INTERET','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['ZONE_D_ACTIVITE_OU_D_INTERET','etat_de_l_objet','ETAT','Etat de l´objet bati : Etat ou stade d´un objet qui peut être en projet, en construction, en service ou en ruines.'],
+ARRAY['ZONE_D_ACTIVITE_OU_D_INTERET','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['ZONE_D_ACTIVITE_OU_D_INTERET','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['ZONE_D_ACTIVITE_OU_D_INTERET','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['ZONE_D_ACTIVITE_OU_D_INTERET','importance','IMPORTANCE','Importance : Attribut permettant de hiérarchiser les objets d´une classe en fonction de leur importance relative.'],
+ARRAY['ZONE_D_ACTIVITE_OU_D_INTERET','toponyme','TOPONYME','Toponyme : Toponyme de l´objet.'],
+ARRAY['ZONE_D_ACTIVITE_OU_D_INTERET','statut_du_toponyme','STATUT_TOP','Statut du toponyme : Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité.'],
+ARRAY['ZONE_D_ACTIVITE_OU_D_INTERET','fictif','FICTIF','Fictif : Indique que la géométrie de l´objet n´est pas précise (utilisé pour assurer l´exhaustivité d´une classe ou la continuité d´un réseau même lorsque la forme de ses éléments n´est pas connu avec précision).'],
+ARRAY['ZONE_D_ACTIVITE_OU_D_INTERET','categorie','CATEGORIE','Catégorie : Attribut permettant de distinguer plusieurs types d´activité sans rentrer dans le détail de chaque nature.'],
+ARRAY['ZONE_D_ACTIVITE_OU_D_INTERET','nature','NATURE','Nature : Nature de la zone d´activité ou d´intérêt.'],
+ARRAY['ZONE_D_ACTIVITE_OU_D_INTERET','nature_detaillee','NAT_DETAIL','Nature détaillée : Nature précise de la zone d´activité ou d´intérêt.'],
+ARRAY['ZONE_D_ACTIVITE_OU_D_INTERET','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['LIGNE_ELECTRIQUE','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['LIGNE_ELECTRIQUE','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['LIGNE_ELECTRIQUE','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['LIGNE_ELECTRIQUE','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['LIGNE_ELECTRIQUE','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['LIGNE_ELECTRIQUE','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['LIGNE_ELECTRIQUE','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['LIGNE_ELECTRIQUE','etat_de_l_objet','ETAT','Etat de l´objet : Etat ou stade d´un objet qui peut être en projet, en construction ou en service.'],
+ARRAY['LIGNE_ELECTRIQUE','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['LIGNE_ELECTRIQUE','precision_altimetrique','PREC_ALTI','Précision altimétrique : Précision altimétrique de la géométrie décrivant l´objet.'],
+ARRAY['LIGNE_ELECTRIQUE','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['LIGNE_ELECTRIQUE','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['LIGNE_ELECTRIQUE','voltage','VOLTAGE','Voltage : Tension de construction (ligne hors tension) ou d´exploitation maximum (ligne sous tension) de la ligne électrique.'],
+ARRAY['LIGNE_ELECTRIQUE','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['POSTE_DE_TRANSFORMATION','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['POSTE_DE_TRANSFORMATION','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['POSTE_DE_TRANSFORMATION','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['POSTE_DE_TRANSFORMATION','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['POSTE_DE_TRANSFORMATION','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['POSTE_DE_TRANSFORMATION','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['POSTE_DE_TRANSFORMATION','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['POSTE_DE_TRANSFORMATION','etat_de_l_objet','ETAT','Etat de l´objet : Etat ou stade d´un objet qui peut être en projet, en construction ou en service.'],
+ARRAY['POSTE_DE_TRANSFORMATION','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['POSTE_DE_TRANSFORMATION','precision_altimetrique','PREC_ALTI','Précision altimétrique : Précision altimétrique de la géométrie décrivant l´objet.'],
+ARRAY['POSTE_DE_TRANSFORMATION','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['POSTE_DE_TRANSFORMATION','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['POSTE_DE_TRANSFORMATION','importance','IMPORTANCE','Importance : Attribut permettant de hiérarchiser les objets d´une classe en fonction de leur importance relative.'],
+ARRAY['POSTE_DE_TRANSFORMATION','toponyme','TOPONYME','Toponyme : Toponyme de l´objet.'],
+ARRAY['POSTE_DE_TRANSFORMATION','statut_du_toponyme','STATUT_TOP','Statut du toponyme : Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité.'],
+ARRAY['POSTE_DE_TRANSFORMATION','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['CANALISATION','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['CANALISATION','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['CANALISATION','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['CANALISATION','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['CANALISATION','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['CANALISATION','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['CANALISATION','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['CANALISATION','etat_de_l_objet','ETAT','Etat de l´objet : Etat ou stade d´un objet qui peut être en projet, en construction ou en service.'],
+ARRAY['CANALISATION','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['CANALISATION','precision_altimetrique','PREC_ALTI','Précision altimétrique : Précision altimétrique de la géométrie décrivant l´objet.'],
+ARRAY['CANALISATION','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['CANALISATION','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['CANALISATION','nature','NATURE','Nature : Nature de la matière transportée.'],
+ARRAY['CANALISATION','position_par_rapport_au_sol','POS_SOL','Position par rapport au sol : Position de l´infrastructure par rapport au niveau du sol.'],
+ARRAY['CANALISATION','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['ERP','cleabs','ID',' : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['ERP','gcms_date_creation','DATE_CREAT',' : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['ERP','gcms_date_modification','DATE_MAJ',' : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['ERP','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['ERP','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['ERP','date_d_apparition','DATE_APP',' : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['ERP','date_de_confirmation','DATE_CONF',' : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['ERP','etat_de_l_objet','ETAT',' : Etat ou stade d´un objet qui peut être en projet, en construction ou en service.'],
+ARRAY['ERP','precision_planimetrique','PREC_PLANI',' : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['ERP','sources','SOURCE',' : Organismes attestant l´existence de l´objet.'],
+ARRAY['ERP','identifiants_sources','ID_SOURCE',' : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['ERP','id_reference','ID_REF',' : Identifiant de référence unique partagé entre les acteurs .'],
+ARRAY['ERP','libelle','LIBELLE',' : Dénomination libre de l’établissement.'],
+ARRAY['ERP','categorie','CATEGORIE',' : Catégorie dans laquelle est classé l´établissement.'],
+ARRAY['ERP','type_principal','TYPE_1',' : Type d´établissement principal.'],
+ARRAY['ERP','types_secondaires','TYPE_2',' : Types d´établissement secondaires.'],
+ARRAY['ERP','activite_principale','ACTIV_1',' : Activité principale de l´établissement.'],
+ARRAY['ERP','activites_secondaires','ACTIV_2',' : Activités secondaires de l´établissement.'],
+ARRAY['ERP','public','PUBLIC',' : Etablissement public ou non.'],
+ARRAY['ERP','ouvert','OUVERT',' : Etablissement effectivement ouvert ou non.'],
+ARRAY['ERP','capacite_d_accueil_du_public','CAP_ACC',' : Capacité totale d´accueil au public.'],
+ARRAY['ERP','capacite_d_hebergement','CAP_HEBERG',' : Capacité d´hébergement.'],
+ARRAY['ERP','numero_siret','SIRET',' : Numéro SIRET de l´établissement.'],
+ARRAY['ERP','adresse_numero','ADR_NUMERO',' : Numéro de l´adresse de l´établissement.'],
+ARRAY['ERP','adresse_indice_de_repetition','ADR_REP',' : Indice de répétition de l´adresse de l´établissement.'],
+ARRAY['ERP','adresse_designation_de_l_entree','ADR_COMPL',' : Complément d´adressage de l´adresse de l´établissement.'],
+ARRAY['ERP','adresse_nom_1','ADR_NOM_1',' : Nom de voie de l´adresse de l´établissement.'],
+ARRAY['ERP','adresse_nom_2','ADR_NOM_2',' : Elément d´adressage complémentaire de l´adresse de l´établissement.'],
+ARRAY['ERP','insee_commune','CODE_INSEE',' : Code INSEE de la commune.'],
+ARRAY['ERP','code_postal','CODE_POST',' : Code postal.'],
+ARRAY['ERP','origine_de_la_geometrie','ORIGIN_GEO',' : Origine de la géométrie.'],
+ARRAY['ERP','type_de_localisation','TYPE_LOC',' : Type de localisation de l´objet.'],
+ARRAY['ERP','validation_ign','VALID_IGN',' : Validation par l´IGN de l´objet ou non.'],
+ARRAY['ERP','liens_vers_batiment','ID_BATI',' : .'],
+ARRAY['ERP','liens_vers_enceinte','ID_ENCEINT',' : .'],
+ARRAY['ERP','liens_vers_adresse','ID_ADRESSE',' : .'],
+ARRAY['ERP','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['TOPONYMIE_SERVICES_ET_ACTIVITES','cleabs_de_l_objet','ID',' : Identifiant de l´objet topographique auquel se rapporte ce toponyme.'],
+ARRAY['TOPONYMIE_SERVICES_ET_ACTIVITES','classe_de_l_objet','CLASSE',' : Classe ou table où est situé l´objet topographique auquel se rapporte ce toponyme.'],
+ARRAY['TOPONYMIE_SERVICES_ET_ACTIVITES','nature_de_l_objet','NATURE',' : Nature de l´objet nommé (généralement issu de l´attribut nature de cet objet).'],
+ARRAY['TOPONYMIE_SERVICES_ET_ACTIVITES','graphie_du_toponyme','GRAPHIE',' : Une des graphies possibles pour décrire l´objet topographique.'],
+ARRAY['TOPONYMIE_SERVICES_ET_ACTIVITES','source_du_toponyme','SOURCE',' : Source de la graphie (peut être différent de la source de l´objet topographique lui-même).'],
+ARRAY['TOPONYMIE_SERVICES_ET_ACTIVITES','statut_du_toponyme','STATUT_TOP',' : Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité.'],
+ARRAY['TOPONYMIE_SERVICES_ET_ACTIVITES','date_du_toponyme','DATE_TOP',' : Date d´enregistrement ou de validation du toponyme.'],
+ARRAY['TOPONYMIE_SERVICES_ET_ACTIVITES','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['ZONE_DE_VEGETATION','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['ZONE_DE_VEGETATION','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['ZONE_DE_VEGETATION','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['ZONE_DE_VEGETATION','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['ZONE_DE_VEGETATION','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['ZONE_DE_VEGETATION','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['ZONE_DE_VEGETATION','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['ZONE_DE_VEGETATION','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['ZONE_DE_VEGETATION','nature','NATURE','Nature : Nature de la végétation.'],
+ARRAY['ZONE_DE_VEGETATION','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['HAIE','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['HAIE','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['HAIE','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['HAIE','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['HAIE','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['HAIE','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['HAIE','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['HAIE','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['HAIE','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['ZONE_D_ESTRAN','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['ZONE_D_ESTRAN','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['ZONE_D_ESTRAN','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['ZONE_D_ESTRAN','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['ZONE_D_ESTRAN','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['ZONE_D_ESTRAN','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['ZONE_D_ESTRAN','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['ZONE_D_ESTRAN','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['ZONE_D_ESTRAN','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['ZONE_D_ESTRAN','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['ZONE_D_ESTRAN','nature','NATURE','Nature : Nature de la zone d´estran.'],
+ARRAY['ZONE_D_ESTRAN','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['PARC_OU_RESERVE','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['PARC_OU_RESERVE','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['PARC_OU_RESERVE','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['PARC_OU_RESERVE','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['PARC_OU_RESERVE','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['PARC_OU_RESERVE','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['PARC_OU_RESERVE','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['PARC_OU_RESERVE','etat_de_l_objet','ETAT','Etat de l´objet : Etat ou stade d´un objet qui peut être en projet, en construction ou en service.'],
+ARRAY['PARC_OU_RESERVE','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['PARC_OU_RESERVE','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['PARC_OU_RESERVE','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['PARC_OU_RESERVE','toponyme','TOPONYME','Toponyme : Toponyme de l´objet.'],
+ARRAY['PARC_OU_RESERVE','statut_du_toponyme','STATUT_TOP','Statut du toponyme : Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité.'],
+ARRAY['PARC_OU_RESERVE','fictif','FICTIF','Fictif : Indique que la géométrie de l´objet n´est pas précise (utilisé pour assurer l´exhaustivité d´une classe ou la continuité d´un réseau même lorsque la forme de ses éléments n´est pas connu avec précision).'],
+ARRAY['PARC_OU_RESERVE','nature','NATURE','Nature : Nature de la zone réglementée.'],
+ARRAY['PARC_OU_RESERVE','nature_detaillee','NAT_DETAIL','Nature détaillée : Nature précise de la zone réglementée.'],
+ARRAY['PARC_OU_RESERVE','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['FORET_PUBLIQUE','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['FORET_PUBLIQUE','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['FORET_PUBLIQUE','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['FORET_PUBLIQUE','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['FORET_PUBLIQUE','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['FORET_PUBLIQUE','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['FORET_PUBLIQUE','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['FORET_PUBLIQUE','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['FORET_PUBLIQUE','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['FORET_PUBLIQUE','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['FORET_PUBLIQUE','importance','IMPORTANCE','Importance : Attribut permettant de hiérarchiser les objets d´une classe en fonction de leur importance relative.'],
+ARRAY['FORET_PUBLIQUE','toponyme','TOPONYME','Toponyme : Toponyme de l´objet.'],
+ARRAY['FORET_PUBLIQUE','statut_du_toponyme','STATUT_TOP','Statut du toponyme : Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité.'],
+ARRAY['FORET_PUBLIQUE','nature','NATURE','Nature : Nature de la forêt publique.'],
+ARRAY['FORET_PUBLIQUE','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['TOPONYMIE_ZONES_REGLEMENTEES','cleabs_de_l_objet','ID',' : Identifiant de l´objet topographique auquel se rapporte ce toponyme.'],
+ARRAY['TOPONYMIE_ZONES_REGLEMENTEES','classe_de_l_objet','CLASSE',' : Classe ou table où est situé l´objet topographique auquel se rapporte ce toponyme.'],
+ARRAY['TOPONYMIE_ZONES_REGLEMENTEES','nature_de_l_objet','NATURE',' : Nature de l´objet nommé (généralement issu de l´attribut nature de cet objet).'],
+ARRAY['TOPONYMIE_ZONES_REGLEMENTEES','graphie_du_toponyme','GRAPHIE',' : Une des graphies possibles pour décrire l´objet topographique.'],
+ARRAY['TOPONYMIE_ZONES_REGLEMENTEES','source_du_toponyme','SOURCE',' : Source de la graphie (peut être différent de la source de l´objet topographique lui-même).'],
+ARRAY['TOPONYMIE_ZONES_REGLEMENTEES','statut_du_toponyme','STATUT_TOP',' : Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité.'],
+ARRAY['TOPONYMIE_ZONES_REGLEMENTEES','date_du_toponyme','DATE_TOP',' : Date d´enregistrement ou de validation du toponyme.'],
+ARRAY['TOPONYMIE_ZONES_REGLEMENTEES','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['SURFACE_HYDROGRAPHIQUE','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['SURFACE_HYDROGRAPHIQUE','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['SURFACE_HYDROGRAPHIQUE','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['SURFACE_HYDROGRAPHIQUE','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['SURFACE_HYDROGRAPHIQUE','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['SURFACE_HYDROGRAPHIQUE','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['SURFACE_HYDROGRAPHIQUE','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['SURFACE_HYDROGRAPHIQUE','etat_de_l_objet','ETAT','Etat de l´objet : Etat ou stade d´un objet qui peut être en projet, en construction ou en service.'],
+ARRAY['SURFACE_HYDROGRAPHIQUE','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['SURFACE_HYDROGRAPHIQUE','precision_altimetrique','PREC_ALTI','Précision altimétrique : Précision altimétrique de la géométrie décrivant l´objet.'],
+ARRAY['SURFACE_HYDROGRAPHIQUE','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['SURFACE_HYDROGRAPHIQUE','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['SURFACE_HYDROGRAPHIQUE','nature','NATURE','Nature : Nature d´un objet hydrographique.'],
+--ARRAY['SURFACE_HYDROGRAPHIQUE','statut_de_l_objet_hydrographique','STATUT','Statut de l´objet hydrographique : Statut de l´objet dans le système d´information.'],
+ARRAY['SURFACE_HYDROGRAPHIQUE','statut','STATUT','Statut de l´objet hydrographique : Statut de l´objet dans le système d´information.'],
+--ARRAY['SURFACE_HYDROGRAPHIQUE','mode_d_obtention_de_la_resolution','SRC_COORD','Mode d´obtention de la résolution : Méthode d’obtention de la résolution d´un tronçon hydrographique.'],
+ARRAY['SURFACE_HYDROGRAPHIQUE','mode_d_obtention_des_coordonnees','SRC_COORD','Mode d´obtention de la résolution : Méthode d’obtention de la résolution d´un tronçon hydrographique.'],
+ARRAY['SURFACE_HYDROGRAPHIQUE','mode_d_obtention_de_l_altitude','SRC_ALTI','Mode d´obtention de l´altitude : .'],
+ARRAY['SURFACE_HYDROGRAPHIQUE','persistance','PERSISTANC','Persistance : Degré de persistance de l´écoulement de l´eau.'],
+ARRAY['SURFACE_HYDROGRAPHIQUE','position_par_rapport_au_sol','POS_SOL','Position par rapport au sol : Niveau de l’objet par rapport à la surface du sol.'],
+ARRAY['SURFACE_HYDROGRAPHIQUE','origine','ORIGINE','Origine : Origine, naturelle ou artificielle, du tronçon hydrographique.'],
+ARRAY['SURFACE_HYDROGRAPHIQUE','salinite','SALINITE','Salinité : Permet de préciser si la surface élémentaire est de type eau salée (oui) ou eau douce (non).'],
+ARRAY['SURFACE_HYDROGRAPHIQUE','code_du_pays','CODE_PAYS','Code du pays : Code du pays auquel appartient la surface hydrographique.'],
+ARRAY['SURFACE_HYDROGRAPHIQUE','code_hydrographique','CODE_HYDRO','Code hydrographique : Code hydrographique.'],
+ARRAY['SURFACE_HYDROGRAPHIQUE','commentaire_sur_l_objet_hydro','COMMENT','Commentaire sur l´objet hydro : Commentaire sur l´objet hydrographique.'],
+ARRAY['SURFACE_HYDROGRAPHIQUE','liens_vers_plan_d_eau','ID_P_EAU','Liens vers plan d´eau : .'],
+ARRAY['SURFACE_HYDROGRAPHIQUE','liens_vers_cours_d_eau','ID_C_EAU','Liens vers cours d´eau : .'],
+ARRAY['SURFACE_HYDROGRAPHIQUE','lien_vers_entite_de_transition','ID_ENT_TR','Lien vers entité de transition : .'],
+ARRAY['SURFACE_HYDROGRAPHIQUE','cpx_toponyme_de_plan_d_eau','NOM_P_EAU','CPX_Toponyme de plan d´eau : .'],
+--ARRAY['SURFACE_HYDROGRAPHIQUE','cpx_toponyme_de_cours_deau','NOM_C_EAU','CPX_Toponyme de cours d´eau : .'],
+ARRAY['SURFACE_HYDROGRAPHIQUE','cpx_toponyme_de_cours_d_eau','NOM_C_EAU','CPX_Toponyme de cours d´eau : .'],
+ARRAY['SURFACE_HYDROGRAPHIQUE','cpx_toponyme_d_entite_de_transition','NOM_ENT_TR','CPX_Toponyme d´entité de transition : .'],
+ARRAY['SURFACE_HYDROGRAPHIQUE','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['TRONCON_HYDROGRAPHIQUE','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['TRONCON_HYDROGRAPHIQUE','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','etat_de_l_objet','ETAT','Etat de l´objet : Etat ou stade d´un objet qui peut être en projet, en construction ou en service.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','fictif','FICTIF','Fictif : Indique que la géométrie de l´objet n´est pas précise (utilisé pour assurer l´exhaustivité d´une classe ou la continuité d´un réseau même lorsque la forme de ses éléments n´est pas connu avec précision).'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','nature','NATURE','Nature : Nature d´un tronçon hydrographique.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','statut','STATUT','Statut de l´objet hydrographique : Statut de l´objet dans le système d´information.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','numero_d_ordre','NUM_ORDRE','Numéro d´ordre : Nombre (ou code) exprimant le degré de ramification d´un tronçon hydrographique.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','strategie_de_classement','CLA_ORDRE','Stratégie de classement du tronçon : Stratégie de classement du tronçon hydrographique.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','perimetre_d_utilisation_ou_origine','PER_ORDRE','Périmètre d´utilisation ou origine : Périmètre d´utilisation ou origine du tronçon hydrographique.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','sens_de_l_ecoulement','SENS_ECOUL','Sens de l´écoulement : Sens d´écoulement de l´eau dans le tronçon par rapport à la numérisation de sa géométrie.'],
+--ARRAY['TRONCON_HYDROGRAPHIQUE','mode_d_obtention_de_la_resolution','SRC_COORD','Mode d´obtention de la résolution : Méthode d’obtention de la résolution d´un tronçon hydrographique.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','mode_d_obtention_des_coordonnees','SRC_COORD','Mode d´obtention de la résolution : Méthode d’obtention de la résolution d´un tronçon hydrographique.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','mode_d_obtention_de_l_altitude','SRC_ALTI','Mode d´obtention de l´altitude : Mode d´obtention de l´altitude.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','reseau_principal_coulant','RES_COULAN','Réseau principal coulant : Appartient au réseau principal coulant.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','delimitation','DELIMIT','delimitation : Indique que la délimitation (par exemple, limites et autres informations) d´un objet géographique est connue.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','origine','ORIGINE','Origine : Origine, naturelle ou artificielle, du tronçon hydrographique.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','classe_de_largeur','LARGEUR','Classe de largeur : Classe de largeur du tronçon hydrographique.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','salinite','SALINITE','Salinité : Permet de préciser si le tronçon hydrographique est de type eau salée ou eau douce.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','type_de_bras','BRAS','Type de bras : Type de bras.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','persistance','PERSISTANC','Persistance : Degré de persistance de l´écoulement de l´eau.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','position_par_rapport_au_sol','POS_SOL','Position par rapport au sol : Niveau de l’objet par rapport à la surface du sol.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','fosse','FOSSE','Fossé : Indique qu´il s´agit d´un fossé et non pas d´un cours d´eau.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','navigabilite','NAVIGABL','Navigabilité : Navigabilité du tronçon hydrographique.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','code_du_pays','CODE_PAYS','Code du pays : Code du pays auquel appartient le tronçon hydrographique.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','code_hydrographique','CODE_HYDRO','Code hydrographique : Code hydrographique.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','commentaire_sur_l_objet_hydro','COMMENT','Commentaire sur l´objet hydro : Commentaire sur l´objet hydrographique.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','inventaire_police_de_l_eau','INV_PO_EAU','Inventaire police de l´eau : Classé à l´inventaire de la police de l´eau.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','identifiant_police_de_l_eau','ID_PO_EAU','Code hydrographique : Identifiant police de l´eau.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','code_du_cours_d_eau_bdcarthage','CODE_CARTH',' : Code générique du cours d´eau BDCarthage.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','liens_vers_cours_d_eau','ID_C_EAU','Liens vers cours d´eau : .'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','liens_vers_surface_hydrographique','ID_S_HYDRO','Liens vers surface hydrographique : .'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','lien_vers_entite_de_transition','ID_ENT_TR','Lien vers entité de transition : .'],
+--ARRAY['TRONCON_HYDROGRAPHIQUE','cpx_toponyme','NOM_C_EAU','CPX_Toponyme : Toponyme du cours d´eau.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','cpx_toponyme_de_cours_d_eau','NOM_C_EAU','CPX_Toponyme : Toponyme du cours d´eau.'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','cpx_toponyme_d_entite_de_transition','NOM_ENT_TR','CPX_Toponyme d´entité de transition : .'],
+ARRAY['TRONCON_HYDROGRAPHIQUE','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['NOEUD_HYDROGRAPHIQUE','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['NOEUD_HYDROGRAPHIQUE','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['NOEUD_HYDROGRAPHIQUE','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['NOEUD_HYDROGRAPHIQUE','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['NOEUD_HYDROGRAPHIQUE','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['NOEUD_HYDROGRAPHIQUE','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['NOEUD_HYDROGRAPHIQUE','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['NOEUD_HYDROGRAPHIQUE','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['NOEUD_HYDROGRAPHIQUE','precision_altimetrique','PREC_ALTI','Précision altimétrique : Précision altimétrique de la géométrie décrivant l´objet.'],
+ARRAY['NOEUD_HYDROGRAPHIQUE','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['NOEUD_HYDROGRAPHIQUE','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['NOEUD_HYDROGRAPHIQUE','toponyme','TOPONYME','Toponyme : Toponyme de l´objet.'],
+ARRAY['NOEUD_HYDROGRAPHIQUE','statut_du_toponyme','STATUT_TOP','Statut du toponyme : Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité.'],
+ARRAY['NOEUD_HYDROGRAPHIQUE','statut','STATUT','Statut de l´objet hydrographique : Statut de l´objet dans le système d´information.'],
+ARRAY['NOEUD_HYDROGRAPHIQUE','categorie','CATEGORIE','Catégorie : Catégorie du nœud hydrographique.'],
+ARRAY['NOEUD_HYDROGRAPHIQUE','code_hydrographique','CODE_HYDRO','Code hydrographique : Code hydrographique.'],
+ARRAY['NOEUD_HYDROGRAPHIQUE','commentaire_sur_l_objet_hydro','COMMENT',' : Commentaire sur l´objet hydrographique.'],
+ARRAY['NOEUD_HYDROGRAPHIQUE','code_du_pays','CODE_PAYS','Code du pays : Code du pays auquel appartient le tronçon hydrographique.'],
+ARRAY['NOEUD_HYDROGRAPHIQUE','mode_d_obtention_des_coordonnees','SRC_COORD','Mode d´obtention des coordonnées : Mode d´obtention des coordonnées planimétriques.'],
+ARRAY['NOEUD_HYDROGRAPHIQUE','mode_d_obtention_de_l_altitude','SRC_ALTI','Mode d´obtention de l´altitude : Mode d´obtention de l´altitude.'],
+ARRAY['NOEUD_HYDROGRAPHIQUE','liens_vers_cours_d_eau_amont','ID_CE_AMON',' : .'],
+ARRAY['NOEUD_HYDROGRAPHIQUE','liens_vers_cours_d_eau_aval','ID_CE_AVAL',' : .'],
+ARRAY['NOEUD_HYDROGRAPHIQUE','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['LIMITE_TERRE_MER','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['LIMITE_TERRE_MER','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['LIMITE_TERRE_MER','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['LIMITE_TERRE_MER','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['LIMITE_TERRE_MER','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['LIMITE_TERRE_MER','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['LIMITE_TERRE_MER','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['LIMITE_TERRE_MER','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['LIMITE_TERRE_MER','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['LIMITE_TERRE_MER','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['LIMITE_TERRE_MER','statut','STATUT','Statut de l´objet hydrographique : Statut de l´objet dans le système d´information.'],
+ARRAY['LIMITE_TERRE_MER','type_de_limite','TYPE_LIMIT','Type de limite : Type de limite (Ligne de base, 0 NGF, Limite salure eaux, Limite de compétence préfet).'],
+ARRAY['LIMITE_TERRE_MER','origine','ORIGINE','Origine : Origine de la limite terre-mer (exemple : naturel, artificiel).'],
+ARRAY['LIMITE_TERRE_MER','niveau','NIVEAU','Niveau : Niveau d´eau définissant la limite terre-eau (exemples : hautes-eaux, basses eaux).'],
+ARRAY['LIMITE_TERRE_MER','code_hydrographique','CODE_HYDRO',' : Code hydrographique.'],
+ARRAY['LIMITE_TERRE_MER','code_du_pays','CODE_PAYS',' : Code du pays auquel appartient la limite.'],
+ARRAY['LIMITE_TERRE_MER','mode_d_obtention_des_coordonnees','SRC_COORD',' : Mode d´obtention des coordonnées planimétriques.'],
+ARRAY['LIMITE_TERRE_MER','commentaire_sur_l_objet_hydro','COMMENT',' : Commentaire sur l´objet hydrographique.'],
+ARRAY['LIMITE_TERRE_MER','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['COURS_D_EAU','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['COURS_D_EAU','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['COURS_D_EAU','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['COURS_D_EAU','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['COURS_D_EAU','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['COURS_D_EAU','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['COURS_D_EAU','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['COURS_D_EAU','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['COURS_D_EAU','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['COURS_D_EAU','toponyme','TOPONYME','Toponyme : Toponyme de l´objet.'],
+ARRAY['COURS_D_EAU','statut_du_toponyme','STATUT_TOP','Statut du toponyme : Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité.'],
+ARRAY['COURS_D_EAU','statut','STATUT','Statut de l´objet hydrographique : Statut de l´objet dans le système d´information.'],
+ARRAY['COURS_D_EAU','code_hydrographique','CODE_HYDRO','Code hydrographique : Code hydrographique, signifiant, défini selon une méthode d´ordination donnée .'],
+ARRAY['COURS_D_EAU','commentaire_sur_l_objet_hydro','COMMENT','Commentaire sur l´objet hydro : Commentaire sur l´objet hydrographique.'],
+ARRAY['COURS_D_EAU','influence_de_la_maree','MAREE','Influence de la marée : Indique si l´eau de surface est affectée par la marée.'],
+ARRAY['COURS_D_EAU','importance','IMPORTANCE','Importance : Attribut permettant de hiérarchiser les objets d´une classe en fonction de leur importance relative.'],
+ARRAY['COURS_D_EAU','caractere_permanent','PERMANENT','Caractère permanent : Indique si le cours d´eau est permanent.'],
+ARRAY['COURS_D_EAU','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['PLAN_D_EAU','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['PLAN_D_EAU','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['PLAN_D_EAU','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['PLAN_D_EAU','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['PLAN_D_EAU','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['PLAN_D_EAU','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['PLAN_D_EAU','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['PLAN_D_EAU','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['PLAN_D_EAU','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['PLAN_D_EAU','importance','IMPORTANCE','Importance : Attribut permettant de hiérarchiser les objets d´une classe en fonction de leur importance relative.'],
+ARRAY['PLAN_D_EAU','toponyme','TOPONYME','Toponyme : Toponyme de l´objet.'],
+ARRAY['PLAN_D_EAU','statut_du_toponyme','STATUT_TOP','Statut du toponyme : Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité.'],
+ARRAY['PLAN_D_EAU','nature','NATURE','Nature : Nature d´un objet hydrographique.'],
+ARRAY['PLAN_D_EAU','statut','STATUT','Statut de l´objet hydrographique : Statut de l´objet dans le système d´information.'],
+ARRAY['PLAN_D_EAU','altitude_moyenne','Z_MOY','Altitude moyenne : Altitude à la cote moyenne ou normale du plan d´eau.'],
+ARRAY['PLAN_D_EAU','referentiel_de_l_altitude_moyenne','REF_Z_MOY','Référentiel de l´altitude moy : Méthode d´obtention de l´altitude à la cote moyenne ou normale du plan d´eau.'],
+--ARRAY['PLAN_D_EAU','mode_d_obtention_de_l_altitude','MODE_Z_MOY','Mode d´obtention de l´altitude moy : Méthode d´obtention de l´altitude à la cote moyenne ou normale du plan d´eau.'],
+ARRAY['PLAN_D_EAU','mode_d_obtention_de_l_altitude_moy','MODE_Z_MOY','Mode d´obtention de l´altitude moy : Méthode d´obtention de l´altitude à la cote moyenne ou normale du plan d´eau.'],
+ARRAY['PLAN_D_EAU','precision_de_l_altitude_moyenne','PREC_Z_MOY','Précision de l´altitude moyenne : Méthode d´obtention de l´altitude à la cote moyenne ou normale du plan d´eau.'],
+ARRAY['PLAN_D_EAU','hauteur_d_eau_maximale','HAUT_MAX','Hauteur d´eau maximale : Hauteur d’eau maximale d’un plan d’eau artificiel.'],
+ARRAY['PLAN_D_EAU','mode_d_obtention_de_la_hauteur','OBT_HT_MAX','Mode d´obtention de la hauteur : Méthode d´obtention de la hauteur maximale du plan d´eau.'],
+ARRAY['PLAN_D_EAU','code_hydrographique','CODE_HYDRO','Code hydrographique : Code hydrographique, signifiant, défini selon une méthode d´ordination donnée.'],
+ARRAY['PLAN_D_EAU','commentaire_sur_l_objet_hydro','COMMENT','Commentaire sur l´objet hydro : Commentaire sur l´objet hydrographique.'],
+ARRAY['PLAN_D_EAU','influence_de_la_maree','MAREE','Influence de la marée : Indique si l´eau de surface est affectée par la marée.'],
+ARRAY['PLAN_D_EAU','caractere_permanent','PERMANENT','Caractère permanent : Indique si le plan d´eau est permanent.'],
+ARRAY['PLAN_D_EAU','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['ENTITE_DE_TRANSITION','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['ENTITE_DE_TRANSITION','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['ENTITE_DE_TRANSITION','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['ENTITE_DE_TRANSITION','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['ENTITE_DE_TRANSITION','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['ENTITE_DE_TRANSITION','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['ENTITE_DE_TRANSITION','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['ENTITE_DE_TRANSITION','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['ENTITE_DE_TRANSITION','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['ENTITE_DE_TRANSITION','importance','IMPORTANCE','Importance : Attribut permettant de hiérarchiser les objets d´une classe en fonction de leur importance relative.'],
+ARRAY['ENTITE_DE_TRANSITION','toponyme','TOPONYME','Toponyme : Toponyme de l´objet.'],
+ARRAY['ENTITE_DE_TRANSITION','statut_du_toponyme','STATUT_TOP','Statut du toponyme : Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité.'],
+ARRAY['ENTITE_DE_TRANSITION','statut','STATUT','Statut de l´objet hydrographique : Statut de l´objet dans le système d´information.'],
+ARRAY['ENTITE_DE_TRANSITION','code_hydrographique','CODE_HYDRO','Code hydrographique : Code hydrographique.'],
+ARRAY['ENTITE_DE_TRANSITION','commentaire_sur_l_objet_hydro','COMMENT',' : Commentaire sur l´objet hydrographique.'],
+ARRAY['ENTITE_DE_TRANSITION','influence_de_la_maree','MAREE','Influence de la marée : Indique si l´eau de surface est affectée par la marée.'],
+ARRAY['ENTITE_DE_TRANSITION','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['BASSIN_VERSANT_TOPOGRAPHIQUE','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['BASSIN_VERSANT_TOPOGRAPHIQUE','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['BASSIN_VERSANT_TOPOGRAPHIQUE','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['BASSIN_VERSANT_TOPOGRAPHIQUE','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['BASSIN_VERSANT_TOPOGRAPHIQUE','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['BASSIN_VERSANT_TOPOGRAPHIQUE','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['BASSIN_VERSANT_TOPOGRAPHIQUE','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['BASSIN_VERSANT_TOPOGRAPHIQUE','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['BASSIN_VERSANT_TOPOGRAPHIQUE','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['BASSIN_VERSANT_TOPOGRAPHIQUE','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['BASSIN_VERSANT_TOPOGRAPHIQUE','toponyme','TOPONYME','Toponyme : Toponyme de l´objet.'],
+ARRAY['BASSIN_VERSANT_TOPOGRAPHIQUE','statut','STATUT','Statut de l´objet hydrographique : Statut de l´objet dans le système d´information.'],
+ARRAY['BASSIN_VERSANT_TOPOGRAPHIQUE','code_hydrographique','CODE_HYDRO','Code hydrographique : Code hydrographique du bassin versant.'],
+--ARRAY['BASSIN_VERSANT_TOPOGRAPHIQUE','mode_d_obtention_de_la_resolution','SRC_COORD','Mode d´obtention de la résolution : Méthode d’obtention de la résolution d´un tronçon hydrographique.'],
+ARRAY['BASSIN_VERSANT_TOPOGRAPHIQUE','mode_d_obtention_des_coordonnees','SRC_COORD','Mode d´obtention de la résolution : Méthode d’obtention de la résolution d´un tronçon hydrographique.'],
+ARRAY['BASSIN_VERSANT_TOPOGRAPHIQUE','commentaire_sur_l_objet_hydro','COMMENT','Commentaire sur l´objet hydro : Commentaire sur l´objet hydrographique, Tronçon hydrographique.'],
+ARRAY['BASSIN_VERSANT_TOPOGRAPHIQUE','code_du_bassin_hydrographique','CODE_BH','Code du bassin hydrographique : Code du bassin hydrographique.'],
+ARRAY['BASSIN_VERSANT_TOPOGRAPHIQUE','libelle_du_bassin_hydrographique','BASS_HYDRO','Libellé du bassin hydrographique : Libellé du bassin hydrographique.'],
+ARRAY['BASSIN_VERSANT_TOPOGRAPHIQUE','origine','ORIGINE','Origine : Origine, naturelle ou artificielle, du tronçon hydrographique.'],
+ARRAY['BASSIN_VERSANT_TOPOGRAPHIQUE','bassin_fluvial','B_FLUVIAL','Bassin fluvial : Indique si le bassin versant est un bassin fluvial.'],
+ARRAY['BASSIN_VERSANT_TOPOGRAPHIQUE','code_bdcarthage','CODE_CARTH','Code BDCarthage : Code de la zone BDCarthage.'],
+ARRAY['BASSIN_VERSANT_TOPOGRAPHIQUE','liens_vers_cours_d_eau_principal','ID_C_EAU','Liens vers cours d´eau principal.'],
+ARRAY['BASSIN_VERSANT_TOPOGRAPHIQUE','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['DETAIL_HYDROGRAPHIQUE','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['DETAIL_HYDROGRAPHIQUE','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['DETAIL_HYDROGRAPHIQUE','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['DETAIL_HYDROGRAPHIQUE','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['DETAIL_HYDROGRAPHIQUE','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['DETAIL_HYDROGRAPHIQUE','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['DETAIL_HYDROGRAPHIQUE','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['DETAIL_HYDROGRAPHIQUE','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['DETAIL_HYDROGRAPHIQUE','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['DETAIL_HYDROGRAPHIQUE','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['DETAIL_HYDROGRAPHIQUE','importance','IMPORTANCE','Importance : Attribut permettant de hiérarchiser les objets d´une classe en fonction de leur importance relative.'],
+ARRAY['DETAIL_HYDROGRAPHIQUE','toponyme','TOPONYME','Toponyme : Toponyme de l´objet.'],
+ARRAY['DETAIL_HYDROGRAPHIQUE','statut_du_toponyme','STATUT_TOP','Statut du toponyme : Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité.'],
+ARRAY['DETAIL_HYDROGRAPHIQUE','nature','NATURE','Nature : Nature du détail hydrographique.'],
+ARRAY['DETAIL_HYDROGRAPHIQUE','nature_detaillee','NAT_DETAIL','Nature détaillée : Nature précise du détail hydrographique.'],
+ARRAY['DETAIL_HYDROGRAPHIQUE','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['TOPONYMIE_HYDROGRAPHIE','cleabs_de_l_objet','ID',' : Identifiant de l´objet topographique auquel se rapporte ce toponyme.'],
+ARRAY['TOPONYMIE_HYDROGRAPHIE','classe_de_l_objet','CLASSE',' : Classe ou table où est situé l´objet topographique auquel se rapporte ce toponyme.'],
+ARRAY['TOPONYMIE_HYDROGRAPHIE','nature_de_l_objet','NATURE',' : Nature de l´objet nommé (généralement issu de l´attribut nature de cet objet).'],
+ARRAY['TOPONYMIE_HYDROGRAPHIE','graphie_du_toponyme','GRAPHIE',' : Une des graphies possibles pour décrire l´objet topographique.'],
+ARRAY['TOPONYMIE_HYDROGRAPHIE','source_du_toponyme','SOURCE',' : Source de la graphie (peut être différent de la source de l´objet topographique lui-même).'],
+ARRAY['TOPONYMIE_HYDROGRAPHIE','statut_du_toponyme','STATUT_TOP',' : Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité.'],
+ARRAY['TOPONYMIE_HYDROGRAPHIE','date_du_toponyme','DATE_TOP',' : Date d´enregistrement ou de validation du toponyme.'],
+ARRAY['TOPONYMIE_HYDROGRAPHIE','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['ZONE_D_HABITATION','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['ZONE_D_HABITATION','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['ZONE_D_HABITATION','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['ZONE_D_HABITATION','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['ZONE_D_HABITATION','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['ZONE_D_HABITATION','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['ZONE_D_HABITATION','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['ZONE_D_HABITATION','etat_de_l_objet','ETAT','Etat de l´objet bati : Etat ou stade d´un objet qui peut être en projet, en construction, en service ou en ruines.'],
+ARRAY['ZONE_D_HABITATION','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['ZONE_D_HABITATION','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['ZONE_D_HABITATION','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['ZONE_D_HABITATION','importance','IMPORTANCE','Importance : Attribut permettant de hiérarchiser les objets d´une classe en fonction de leur importance relative.'],
+ARRAY['ZONE_D_HABITATION','toponyme','TOPONYME','Toponyme : Toponyme de l´objet.'],
+ARRAY['ZONE_D_HABITATION','statut_du_toponyme','STATUT_TOP','Statut du toponyme : Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité.'],
+ARRAY['ZONE_D_HABITATION','fictif','FICTIF','Fictif : Indique que la géométrie de l´objet n´est pas précise (utilisé pour assurer l´exhaustivité d´une classe ou la continuité d´un réseau même lorsque la forme de ses éléments n´est pas connu avec précision).'],
+ARRAY['ZONE_D_HABITATION','nature','NATURE','Nature : Nature de la zone d´habitation.'],
+ARRAY['ZONE_D_HABITATION','nature_detaillee','NAT_DETAIL','Nature détaillée : Nature précise de la zone d´habitation.'],
+ARRAY['ZONE_D_HABITATION','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['LIEU_DIT_NON_HABITE','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['LIEU_DIT_NON_HABITE','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['LIEU_DIT_NON_HABITE','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['LIEU_DIT_NON_HABITE','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['LIEU_DIT_NON_HABITE','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['LIEU_DIT_NON_HABITE','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['LIEU_DIT_NON_HABITE','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['LIEU_DIT_NON_HABITE','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['LIEU_DIT_NON_HABITE','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['LIEU_DIT_NON_HABITE','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['LIEU_DIT_NON_HABITE','importance','IMPORTANCE','Importance : Attribut permettant de hiérarchiser les objets d´une classe en fonction de leur importance relative.'],
+ARRAY['LIEU_DIT_NON_HABITE','toponyme','TOPONYME','Toponyme : Toponyme de l´objet.'],
+ARRAY['LIEU_DIT_NON_HABITE','statut_du_toponyme','STATUT_TOP','Statut du toponyme : Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité.'],
+ARRAY['LIEU_DIT_NON_HABITE','nature','NATURE','Nature : Nature de l´espace naturel.'],
+ARRAY['LIEU_DIT_NON_HABITE','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['DETAIL_OROGRAPHIQUE','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['DETAIL_OROGRAPHIQUE','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['DETAIL_OROGRAPHIQUE','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['DETAIL_OROGRAPHIQUE','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['DETAIL_OROGRAPHIQUE','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['DETAIL_OROGRAPHIQUE','date_d_apparition','DATE_APP','Date d´apparition : Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain.'],
+ARRAY['DETAIL_OROGRAPHIQUE','date_de_confirmation','DATE_CONF','Date de confirmation : Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain.'],
+ARRAY['DETAIL_OROGRAPHIQUE','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['DETAIL_OROGRAPHIQUE','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['DETAIL_OROGRAPHIQUE','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['DETAIL_OROGRAPHIQUE','importance','IMPORTANCE','Importance : Attribut permettant de hiérarchiser les objets d´une classe en fonction de leur importance relative.'],
+ARRAY['DETAIL_OROGRAPHIQUE','toponyme','TOPONYME','Toponyme : Toponyme de l´objet.'],
+ARRAY['DETAIL_OROGRAPHIQUE','statut_du_toponyme','STATUT_TOP','Statut du toponyme : Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité.'],
+ARRAY['DETAIL_OROGRAPHIQUE','nature','NATURE','Nature : Nature du détail orographique.'],
+ARRAY['DETAIL_OROGRAPHIQUE','nature_detaillee','NAT_DETAIL','Nature détaillée : Nature précise du détail orographique.'],
+ARRAY['DETAIL_OROGRAPHIQUE','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['TOPONYMIE_LIEUX_NOMMES','cleabs_de_l_objet','ID',' : Identifiant de l´objet topographique auquel se rapporte ce toponyme.'],
+ARRAY['TOPONYMIE_LIEUX_NOMMES','classe_de_l_objet','CLASSE',' : Classe ou table où est situé l´objet topographique auquel se rapporte ce toponyme.'],
+ARRAY['TOPONYMIE_LIEUX_NOMMES','nature_de_l_objet','NATURE',' : Nature de l´objet nommé (généralement issu de l´attribut nature de cet objet).'],
+ARRAY['TOPONYMIE_LIEUX_NOMMES','graphie_du_toponyme','GRAPHIE',' : Une des graphies possibles pour décrire l´objet topographique.'],
+ARRAY['TOPONYMIE_LIEUX_NOMMES','source_du_toponyme','SOURCE',' : Source de la graphie (peut être différent de la source de l´objet topographique lui-même).'],
+ARRAY['TOPONYMIE_LIEUX_NOMMES','statut_du_toponyme','STATUT_TOP',' : Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité.'],
+ARRAY['TOPONYMIE_LIEUX_NOMMES','date_du_toponyme','DATE_TOP',' : Date d´enregistrement ou de validation du toponyme.'],
+ARRAY['TOPONYMIE_LIEUX_NOMMES','geometrie','geom','Champs comptenant la géométrie de l´objet.'],
+ARRAY['ADRESSE','cleabs','ID','Cleabs : Identifiant unique de l´objet dans la BDTopo.'],
+--ARRAY['ADRESSE','gcms_date_creation','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+--ARRAY['ADRESSE','gcms_date_modification','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['ADRESSE','date_creat','DATE_CREAT','GCMS_Date création : Date à laquelle l´objet a été saisi pour la première fois dans la base de données.'],
+ARRAY['ADRESSE','date_maj','DATE_MAJ','GCMS_Date modification : Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données.'],
+ARRAY['ADRESSE','precision_planimetrique','PREC_PLANI','Précision planimétrique : Précision planimétrique de la géométrie décrivant l´objet.'],
+ARRAY['ADRESSE','sources','SOURCE','Sources : Organismes attestant l´existence de l´objet.'],
+ARRAY['ADRESSE','identifiants_sources','ID_SOURCE','Identifiants sources : Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire.'],
+ARRAY['ADRESSE','numero','NUMERO','Numéro : Numéro de l’adresse dans la voie, sans indice de répétition.'],
+ARRAY['ADRESSE','numero_fictif','NUM_FICTIF','Numéro fictif : Vrai si le numéro n´est pas un numéro définitif ou significatif.'],
+ARRAY['ADRESSE','indice_de_repetition','REP','Indice de répétition : Indice de répétition.'],
+ARRAY['ADRESSE','designation_de_l_entree','COMPL','Désignation de l´entrée : Désignation de l’entrée précisant l’adresse dans les habitats collectifs.'],
+ARRAY['ADRESSE','nom_1','NOM_1','Nom 1 : Nom principal de l’adresse : nom de la voie ou nom de lieu-dit le cas échéant.'],
+ARRAY['ADRESSE','nom_2','NOM_2','Nom 2 : Nom secondaire de l´adresse : un éventuel nom de lieu-dit.'],
+ARRAY['ADRESSE','insee_commune','CODE_INSEE','INSEE commune : Numéro INSEE de la commune de l’adresse.'],
+ARRAY['ADRESSE','code_postal','CODE_POST','Code postal : Code postal de la commune.'],
+ARRAY['ADRESSE','cote','COTE','Côté : Côté du tronçon de route où est située l’adresse (à droite ou à gauche) en fonction de son sens de numérisation du tronçon dans la base.'],
+ARRAY['ADRESSE','type_de_localisation','TYPE_LOC','Type de localisation : Localisation de l´adresse.'],
+ARRAY['ADRESSE','methode','METHODE','Méthode : Méthode de positionnement de l´adresse.'],
+ARRAY['ADRESSE','alias','ALIAS','Alias : Dénomination ancienne de la voie, un nom de la voie en langue régionale, une voie communale, ou un nom du lieu-dit relatif à l’adresse en usage local.'],
+ARRAY['ADRESSE','lien_vers_objet_support_1','ID_SUPPOR1','Lien vers objet support 1 : Identifiant de l´objet support 1 (Tronçon de route, Zone d´habitation, ...) de l’adresse.'],
+ARRAY['ADRESSE','lien_vers_objet_support_2','ID_SUPPOR2','Lien vers objet support 2 : Identifiant de l´objet support 2 (Tronçon de route, Zone d´habitation, ...) de l’adresse.'],
+ARRAY['ADRESSE','geometrie','geom','Champs comptenant la géométrie de l´objet.']
+];
+nb_valeur := array_length(liste_valeur, 1);
+
+FOR i_table IN 1..nb_valeur LOOP
+---- Récupération des champs
+---- Nom de la table
+	select
+		case
+			when COVADIS is false then 
+				lower(liste_valeur[i_table][1])
+			else
+				case
+					when millesime is not null then
+						'n_' || lower(liste_valeur[i_table][1]) || '_bdt_' || emprise || '_' || millesime
+					else
+						'n_' || lower(liste_valeur[i_table][1]) || '_bdt_' || emprise
+				end
+		end
+		 into nom_table;
+---- Nom du champs à commenter		
+	SELECT 
+		CASE
+			WHEN livraison = 'sql' THEN lower(liste_valeur[i_table][2])
+			ELSE lower(liste_valeur[i_table][3])
+		END
+		into champs;
+---- Nom du commentaire	
+	SELECT liste_valeur[i_table][4] into commentaires;
+	/*-- debug
+	RAISE NOTICE '%', i_table;
+	RAISE NOTICE '%', nom_table;
+	RAISE NOTICE '%', champs;
+	RAISE NOTICE '%', commentaires;
+	-- debug */
+
+---- Execution de la requete
+	IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) then
+		req := '
+				COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || champs || ' IS ''' || commentaires || ''';
+				';
+		--RAISE NOTICE '%', req;
 		EXECUTE(req);
-END IF;
-
----- D.3 arrondissement
-IF covadis is true
-	then
-		nom_table := 'n_arrondissement_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
 	else
-		nom_table := 'arrondissement';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Circonscription administrative déconcentrée de l’État, subdivision du département'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_insee_de_l_arrondissement IS ''Code INSEE de l´arrondissement'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_insee_du_departement IS ''Code INSEE du département'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_insee_de_la_region IS ''Code INSEE de la région'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nom_officiel IS ''Nom officiel de l´arrondissement'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en MULTIPOLYGON.'';
-	';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.4 arrondissement_municipal
-IF covadis is true
-	then
-		nom_table := 'n_arrondissement_municipal_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'arrondissement_municipal';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Subdivision territoriale des communes de Lyon, Marseille et Paris'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_insee IS ''Code INSEE de l´arrondissement municipal'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_insee_de_la_commune_de_rattach IS ''Code INSEE de la commune de rattachement'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_postal IS ''Code postal utilisé pour l´arrondissement municipal'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nom_officiel IS ''Nom officiel de l´arrondissement municipal'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.lien_vers_chef_lieu IS ''Lien vers la zone d´habitation chef-lieu de l´arrondissement municipal'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.liens_vers_autorite_administrative IS ''Lien vers la mairie d´arrondissement (zone d´activité ou d´intérêt)'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en MULTIPOLYGON.'';
-';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.5 bassin_versant_topographique
-IF covadis is true
-	then
-		nom_table := 'n_bassin_versant_topographique_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'bassin_versant_topographique';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Aire de collecte (impluvium) considérée à partir d’un exutoire ou ensemble d’exutoires, limitée par le contour à l’intérieur duquel se rassemblent les eaux précipitées qui s’écoulent en surface vers cette sortie'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.toponyme IS ''Toponyme de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.statut IS ''Statut de l´objet dans le système d´information'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_hydrographique IS ''Code hydrographique du bassin versant'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.mode_d_obtention_des_coordonnees IS ''Méthode utilisée pour déterminer les coordonnées de l´objet hydrographique.'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.commentaire_sur_l_objet_hydro IS ''Commentaire sur l´objet hydrographique'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_du_bassin_hydrographique IS ''Code du bassin hydrographique'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.libelle_du_bassin_hydrographique IS ''Libellé du bassin hydrographique'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.origine IS ''Origine, naturelle ou artificielle, du tronçon hydrographique'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.bassin_fluvial IS ''Indique si le bassin versant est un bassin fluvial'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_bdcarthage IS ''Code de la zone BDCarthage'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.liens_vers_cours_d_eau_principal IS ''Identifiant (clé absolue) du cours d´eau principal du bassin versant.'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en MULTIPOLYGON.'';
-';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.6 batiment
-IF covadis is true
-	then
-		nom_table := 'n_batiment_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'batiment';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Bâtiment'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.etat_de_l_objet IS ''Etat ou stade d´un objet qui peut être en projet, en construction, en service ou en ruines'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_altimetrique IS ''Précision altimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature IS ''Attribut permettant de distinguer différents types de bâtiments selon leur architecture'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.origine_du_batiment IS ''Attribut indiquant si la géométrie du bâtiment est issue de l´imagerie aérienne ou du cadastre'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.usage_1 IS ''Usage principal du bâtiment'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.usage_2 IS ''Usage secondaire du bâtiment'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.construction_legere IS ''Indique qu´il s´agit d´une structure légère, non attachée au sol par l´intermédiaire de fondations, ou d´un bâtiment ou partie de bâtiment ouvert sur au moins un côté'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.hauteur IS ''Hauteur du bâtiment mesuré entre le sol et la gouttière (altitude maximum de la polyligne décrivant le bâtiment)'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nombre_d_etages IS ''Nombre total d´étages du bâtiment'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nombre_de_logements IS ''Nombre de logements dans le bâtiment'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.materiaux_des_murs IS ''Code sur 2 caractères : http://piece-jointe-carto.developpement-durable.gouv.fr/NAT004/DTerNP/html3/annexes/desc_pb40_pevprincipale_dmatgm.html'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.materiaux_de_la_toiture IS ''Code sur 2 caractères : http://piece-jointe-carto.developpement-durable.gouv.fr/NAT004/DTerNP/html3/annexes/desc_pb40_pevprincipale_dmatto.html'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.altitude_maximale_sol IS ''Altitude maximale au pied de la construction'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.altitude_maximale_toit IS ''Altitude maximale du toit, c’est-à-dire au faîte du toit'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.altitude_minimale_sol IS ''Altitude minimale au pied de la construction'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.altitude_minimale_toit IS ''Altitude minimale du toit, c’est-à-dire au bord du toit ou à la gouttière'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.appariement_fichiers_fonciers IS ''Indicateur relatif à la fiabilité de l´appariement avec les fichiers fonciers'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en MULTIPOLYGON'';
-';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.7 canalisation
-IF covadis is true
-	then
-		nom_table := 'n_canalisation_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'canalisation';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Infrastructure dédiée au transport d’hydrocarbures liquides ou gazeux ou de matière première (tapis roulant industriel)'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.etat_de_l_objet IS ''Etat ou stade d´un objet qui peut être en projet, en construction ou en service'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_altimetrique IS ''Précision altimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature IS ''Nature de la matière transportée'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.position_par_rapport_au_sol IS ''Position de l´infrastructure par rapport au niveau du sol'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en MULTIPOLYGON'';
-';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.8 cimetiere
-IF covadis is true
-	then
-		nom_table := 'n_cimetiere_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'cimetiere';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Endroit où reposent les morts'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_altimetrique IS ''Précision altimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.importance IS ''Attribut permettant de hiérarchiser les objets d´une classe en fonction de leur importance relative'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.toponyme IS ''Toponyme de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.statut_du_toponyme IS ''Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature IS ''Attribut permettant de distinguer les cimetières civils des cimetières militaires'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature_detaillee IS ''Nature précise du cimetière'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.etat_de_l_objet IS ''Etat ou stade d´un objet qui peut être en projet, en construction, en service ou en ruines'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en MULTIPOLYGON'';
-';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.9 collectivite_territoriale
-IF covadis is true
-	then
-		nom_table := 'n_collectivite_territoriale_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'collectivite_territoriale';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Collectivité territoriale correspondant à l’échelon départemental et incluant les départements ainsi que les collectivités territoriales uniques et les collectivités territoriales à statut particulier'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_insee IS ''Code INSEE de la collectivité départementale (collectivité territoriale située entre la commune et la région)'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_insee_de_la_region IS ''Code INSEE de la région'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nom_officiel IS ''Nom officiel de la collectivité départementale'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.liens_vers_autorite_administrative IS ''Lien vers le siège du conseil de la collectivité (Zone d´activité ou d´intérêt)'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en MULTIPOLYGON'';
-';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.10 commune_associee_ou_deleguee
-IF covadis is true
-	then
-		nom_table := 'n_commune_associee_ou_deleguee_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'commune_associee_ou_deleguee';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Ancienne commune ayant perdu ainsi son statut de collectivité territoriale en fusionnant avec d’autres communes, mais ayant gardé son territoire et certaines spécificités comme un maire délégué ou une mairie annexe'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature IS ''Nature de la commune associée ou déléguée'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_insee IS ''Code INSEE de la commune associée ou déléguée'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_insee_de_la_commune_de_rattach IS ''Code INSEE de la commune de rattachement'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_postal IS ''Code postal utilisé pour la commune associée ou déléguée'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nom_officiel IS ''Nom officiel de la commune associée ou déléguée'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.lien_vers_chef_lieu IS ''Lien vers la zone d´habitation chef-lieu de la commune associée ou déléguée'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.liens_vers_autorite_administrative IS ''Lien vers l´annexe de la mairie ou la mairie annexe de la commune déléguée (zone d´activité ou d´intérêt)'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en MULTIPOLYGON'';
-';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.11 commune
-IF covadis is true
-	then
-		nom_table := 'n_commune_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'commune';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Plus petite subdivision du territoire, administrée par un maire, des adjoints et un conseil municipal'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_insee IS ''Code insee de la commune sur 5 caractères'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_insee_de_l_arrondissement IS ''Code INSEE de l´arrondissement'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_insee_de_la_collectivite_terr IS ''Code INSEE de la collectivité territoriale incluant cette commune'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_insee_du_departement IS ''Code INSEE du département sur 2 ou 3 caractères'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_insee_de_la_region IS ''Code INSEE de la région'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_postal IS ''Code postal utilisé pour la commune'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nom_officiel IS ''Nom officiel de la commune'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.chef_lieu_d_arrondissement IS ''Indique que la commune est chef-lieu d´arrondissement'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.chef_lieu_de_collectivite_terr IS ''Indique que la commune est chef-lieu d´une collectivité départementale'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.chef_lieu_de_departement IS ''Indique que la commune est chef-lieu d´un département'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.chef_lieu_de_region IS ''Indique que la commune est chef-lieu d´une région'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.capitale_d_etat IS ''Indique que la commune est la capitale d´Etat'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_du_recensement IS ''Date du recensement sur lequel s´appuie le chiffre de population'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.organisme_recenseur IS ''Nom de l´organisme ayant effectué le recensement de population'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.population IS ''Population sans double compte de la commune'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.surface_en_ha IS ''Superficie cadastrale de la commune telle que donnée par l´INSEE (en ha)'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.codes_siren_des_epci IS ''Codes SIREN de l´EPCI ou des EPCI auxquels appartient cette commune'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.lien_vers_chef_lieu IS ''Lien vers la zone d´habitation chef-lieu de la commune'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.liens_vers_autorite_administrative IS ''Lien vers la mairie de cette commune (zone d´activité ou d´intérêt)'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en MULTIPOLYGON'';
-';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.12 construction_lineaire
-IF covadis is true
-	then
-		nom_table := 'n_construction_lineaire_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'construction_lineaire';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Construction dont la forme générale est linéaire'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.etat_de_l_objet IS ''Etat ou stade d´un objet qui peut être en projet, en construction, en service ou en ruines'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_altimetrique IS ''Précision altimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.importance IS ''Attribut permettant de hiérarchiser les objets d´une classe en fonction de leur importance relative'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.toponyme IS ''Toponyme de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.statut_du_toponyme IS ''Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature IS ''Nature de la construction'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature_detaillee IS ''Nature précise de la construction'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en LINESTRING'';
-';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.13 construction_ponctuelle
-IF covadis is true
-	then
-		nom_table := 'n_construction_ponctuelle_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'construction_ponctuelle';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Construction de faible emprise'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.etat_de_l_objet IS ''Etat ou stade d´un objet qui peut être en projet, en construction, en service ou en ruines'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_altimetrique IS ''Précision altimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.importance IS ''Attribut permettant de hiérarchiser les objets d´une classe en fonction de leur importance relative'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.toponyme IS ''Toponyme de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.statut_du_toponyme IS ''Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature IS ''Nature de la construction'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature_detaillee IS ''Nature précise de la construction'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.hauteur IS ''Hauteur de la construction'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en LINESTRING'';
-';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.14 construction_surfacique
-IF covadis is true
-	then
-		nom_table := 'n_construction_surfacique_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'construction_surfacique';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Ouvrage de grande largeur lié au franchissement d’un obstacle par une voie de communication, ou à l’aménagement d’une rivière ou d’un canal'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.etat_de_l_objet IS ''Etat ou stade d´un objet qui peut être en projet, en construction, en service ou en ruines'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_altimetrique IS ''Précision altimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.importance IS ''Attribut permettant de hiérarchiser les objets d´une classe en fonction de leur importance relative'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.toponyme IS ''Toponyme de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.statut_du_toponyme IS ''Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature IS ''Nature de la construction'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature_detaillee IS ''Nature précise de la construction'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en MULTIPOLYGON'';
-';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.15 cours_d_eau
-IF covadis is true
-	then
-		nom_table := 'n_cours_d_eau_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'cours_d_eau';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Ensemble de tronçons hydrographiques connexes partageant un même toponyme'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.toponyme IS ''Toponyme de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.statut_du_toponyme IS ''Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.statut IS ''Statut de l´objet dans le système d´information'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_hydrographique IS ''Code hydrographique, signifiant, défini selon une méthode d´ordination donnée '';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.commentaire_sur_l_objet_hydro IS ''Commentaire sur l´objet hydrographique'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.influence_de_la_maree IS ''Indique si l´eau de surface est affectée par la marée'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.importance IS ''Attribut permettant de hiérarchiser les objets d´une classe en fonction de leur importance relative'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.caractere_permanent IS ''Indique si le cours d´eau est permanent'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en MULTILINESTRING'';
-';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.16 departement
-IF covadis is true
-	then
-		nom_table := 'n_departement_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'departement';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Circonscription administrative déconcentrée de l’État, subdivision de la région et incluant un ou plusieurs arrondissements'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_insee IS ''Code INSEE du département'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_insee_de_la_region IS ''Code INSEE de la région'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nom_officiel IS ''Nom officiel du département'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.liens_vers_autorite_administrative IS ''Lien vers la préfecture du département (zone d´activité ou d´intérêt)'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en MULTILINESTRING'';
-';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.17 detail_hydrographique
-IF covadis is true
-	then
-		nom_table := 'n_detail_hydrographique_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'detail_hydrographique';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Détail ou espace dont le nom se rapporte à l’hydrographie'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.importance IS ''Attribut permettant de hiérarchiser les objets d´une classe en fonction de leur importance relative'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.toponyme IS ''Toponyme de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.etat_de_l_objet IS ''Etat ou stade d´un objet du thème Transport qui peut être en projet, en construction, en service ou non exploité'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.statut_du_toponyme IS ''Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature IS ''Nature du détail hydrographique'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature_detaillee IS ''Nature précise du détail hydrographique'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en POINT'';
-';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.18 detail_orographique
-IF covadis is true
-	then
-		nom_table := 'n_detail_orographique_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'detail_orographique';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Détail ou espace dont le nom se rapporte au relief'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.importance IS ''Attribut permettant de hiérarchiser les objets d´une classe en fonction de leur importance relative'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.statut_du_toponyme IS ''Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature IS ''Nature du détail orographique'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.toponyme IS ''Toponyme de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature_detaillee IS ''Nature précise du détail orographique'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en POINT'';
-';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.19 epci
-IF covadis is true
-	then
-		nom_table := 'n_epci_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'epci';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Structure administrative regroupant plusieurs communes afin d’exercer certaines compétences en commun (établissement public de coopération intercommunale)'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature IS ''Nature de l´EPCI'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_siren IS ''Code SIREN de l´EPCI'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nom_officiel IS ''Nom de l´EPCI'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.liens_vers_autorite_administrative IS ''Lien vers le siège de l´autorité administrative de l´EPCI (zone d´activité ou d´intérêt)'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en MULTIPOLYGON'';
-';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.20 equipement_de_transport
-IF covadis is true
-	then
-		nom_table := 'n_equipement_de_transport_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'equipement_de_transport';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Equipement, construction ou aménagement relatif à un réseau de transport terrestre, maritime ou aérien'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.etat_de_l_objet IS ''Etat ou stade d´un objet qui peut être en projet, en construction, en service ou non exploité'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_altimetrique IS ''Précision altimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.importance IS ''Attribut permettant de hiérarchiser les objets d´une classe en fonction de leur importance relative'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.toponyme IS ''Toponyme de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.statut_du_toponyme IS ''Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.fictif IS ''Indique que la géométrie de l´objet n´est pas précise (utilisé pour assurer l´exhaustivité d´une classe ou la continuité d´un réseau même lorsque la forme de ses éléments n´est pas connu avec (...)'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature IS ''Nature de l´équipement'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature_detaillee IS ''Nature précise de l´équipement'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en MULTIPOLYGON'';
-';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.21 erp
-IF covadis is true
-	then
-		nom_table := 'n_erp_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'erp';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Etablissements Recevant du Public'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.etat_de_l_objet IS ''Etat ou stade d´un objet qui peut être en projet, en construction ou en service'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.id_reference IS ''Identifiant de référence unique partagé entre les acteurs '';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.libelle IS ''Dénomination libre de l’établissement'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.categorie IS ''Catégorie dans laquelle est classé l´établissement'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.type_principal IS ''Type d´établissement principal'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.types_secondaires IS ''Types d´établissement secondaires'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.activite_principale IS ''Activité principale de l´établissement'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.activites_secondaires IS ''Activités secondaires de l´établissement'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.public IS ''Etablissement public ou non'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.ouvert IS ''Etablissement effectivement ouvert ou non'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.capacite_d_accueil_du_public IS ''Capacité totale d´accueil au public'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.capacite_d_hebergement IS ''Capacité d´hébergement'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.numero_siret IS ''Numéro SIRET de l´établissement'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.adresse_numero IS ''Numéro de l´adresse de l´établissement'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.adresse_indice_de_repetition IS ''Indice de répétition de l´adresse de l´établissement'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.adresse_designation_de_l_entree IS ''Complément d´adressage de l´adresse de l´établissement'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.adresse_nom_1 IS ''Nom de voie de l´adresse de l´établissement'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.adresse_nom_2 IS ''Elément d´adressage complémentaire de l´adresse de l´établissement'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.insee_commune IS ''Code INSEE de la commune'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_postal IS ''Code postal'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.origine_de_la_geometrie IS ''Origine de la géométrie'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.type_de_localisation IS ''Type de localisation de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.validation_ign IS ''Validation par l´IGN de l´objet ou non'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.liens_vers_batiment IS ''Lien vers la << Clé absolue >> du ou des bâtiments de la BDTOPO accueillant l´ERP'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.liens_vers_enceinte IS ''Lien vers la << Clé absolue >> de la Zone d´activité ou d´intérêt correspondant à l´ERP dans la BDTOPO''; 
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.liens_vers_adresse IS ''Lien vers l´objet Adresse de la BDTOPO'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en POINT'';
-';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.22 foret_publique
-IF covadis is true
-	then
-		nom_table := 'n_foret_publique_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'foret_publique';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Forêt publique'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs  IS '' Identifiant unique de l´objet dans la BDTopo '';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.importance IS ''Attribut permettant de hiérarchiser les objets d´une classe en fonction de leur importance relative'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.toponyme IS ''Toponyme de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.statut_du_toponyme IS ''Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature IS ''Nature de la forêt publique'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en MULTIPOLYGON'';
-';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.23 haie
-IF covadis is true
-	then
-		nom_table := 'n_haie_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'haie';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Clôture naturelle composée d’arbres, d’arbustes, d’épines ou de branchages et servant à limiter ou à protéger un champ'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en LINESTRING'';
-';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.24 lieu_dit_non_habite
-IF covadis is true
-	then
-		nom_table := 'n_lieu_dit_non_habite_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'lieu_dit_non_habite';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Lieu-dit non habité dont le nom ne se rapporte ni à un détail orographique ni à un détail hydrographique'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.importance IS ''Attribut permettant de hiérarchiser les objets d´une classe en fonction de leur importance relative'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.toponyme IS ''Toponyme de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.statut_du_toponyme IS ''Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature IS ''Nature de l´espace naturel'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en POINT'';
-';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.25 ligne_electrique
-IF covadis is true
-	then
-		nom_table := 'n_ligne_electrique_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'ligne_electrique';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Portion de ligne électrique homogène pour l’ensemble des attributs qui la concernent'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.etat_de_l_objet IS ''Etat ou stade d´un objet qui peut être en projet, en construction ou en service'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_altimetrique IS ''Précision altimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.voltage IS ''Tension de construction (ligne hors tension) ou d´exploitation maximum (ligne sous tension) de la ligne électrique'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en LINESTRING'';
-';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.26 ligne_orographique
-IF covadis is true
-	then
-		nom_table := 'n_ligne_orographique_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'ligne_orographique';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Ligne de rupture de pente artificielle'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.etat_de_l_objet IS ''Etat ou stade d´un objet qui peut être en projet, en construction ou en service'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_altimetrique IS ''Précision altimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature IS ''Nature de la ligne orographique'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en LINESTRING'';
-';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.27 limite_terre_mer
-IF covadis is true
-	then
-		nom_table := 'n_limite_terre_mer_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'limite_terre_mer';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Ligne au niveau de laquelle une masse continentale est en contact avec une masse d’eau, incluant en particulier le trait de côte, défini par la laisse des plus  hautes mers de vives eaux astronomiques'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.statut IS ''Statut de l´objet dans le système d´information'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.type_de_limite IS ''Type de limite (Ligne de base, 0 NGF, Limite salure eaux, Limite de compétence préfet)'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.origine IS ''Origine de la limite terre-mer (exemple : naturel, artificiel)'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.niveau IS ''Niveau d´eau définissant la limite terre-eau (exemples : hautes-eaux, basses eaux)'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_hydrographique IS ''Code hydrographique'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_du_pays IS ''Code du pays auquel appartient la limite'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.mode_d_obtention_des_coordonnees IS ''Mode d´obtention des coordonnées planimétriques'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.commentaire_sur_l_objet_hydro IS ''Commentaire sur l´objet hydrographique'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en LINESTRING'';
-';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.28 noeud_hydrographique
-IF covadis is true
-	then
-		nom_table := 'n_noeud_hydrographique_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'noeud_hydrographique';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Extrémité particulière d’un tronçon hydrographique'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_altimetrique IS ''Précision altimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.toponyme IS ''Toponyme de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.statut_du_toponyme IS ''Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.statut IS ''Statut de l´objet dans le système d´information'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.categorie IS ''Catégorie du nœud hydrographique'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_hydrographique IS ''Code hydrographique'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.commentaire_sur_l_objet_hydro IS ''Commentaire sur l´objet hydrographique'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_du_pays IS ''Code du pays auquel appartient le tronçon hydrographique'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.mode_d_obtention_des_coordonnees IS ''Mode d´obtention des coordonnées planimétriques'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.mode_d_obtention_de_l_altitude IS ''Mode d´obtention de l´altitude'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.liens_vers_cours_d_eau_amont IS ''Liens vers (clé absolue) la classe Cours d´eau définissant le ou les cours d´eau amont au niveau dupoint de confluence (Noeud hydrographique de Nature="Confluent").'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.liens_vers_cours_d_eau_aval IS ''Liens vers (clé absolue) la classe Cours d´eau définissant le ou les cours d´eau aval au niveau du point de confluence (Noeud hydrographique de Nature="Confluent").'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en POINT'';
-';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.29 non_communication
-IF covadis is true
-	then
-		nom_table := 'n_non_communication_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'non_communication';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Nœud du réseau routier indiquant l’impossibilité d’accéder à un tronçon ou à un enchaînement de plusieurs tronçons particuliers à partir d’un tronçon de départ donné'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.lien_vers_troncon_entree IS ''Identifiant du tronçon à partir duquel on ne peut se rendre vers les tronçons sortants de ce nœud'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.liens_vers_troncon_sortie IS ''Identifiant des tronçons constituant le chemin vers lequel on ne peut se rendre à partir du tronçon entrant de ce nœud'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en POINT'';
-';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.30 parc_ou_reserve
-IF covadis is true
-	then
-		nom_table := 'n_parc_ou_reserve_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'parc_ou_reserve';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Zone naturelle faisant l’objet d’une réglementation spécifique'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.etat_de_l_objet IS ''Etat ou stade d´un objet qui peut être en projet, en construction ou en service'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.toponyme IS ''Toponyme de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.statut_du_toponyme IS ''Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.fictif IS ''Indique que la géométrie de l´objet n´est pas précise (utilisé pour assurer l´exhaustivité d´une classe ou la continuité d´un réseau même lorsque la forme de ses éléments n´est pas connu avec précisi (...)'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature IS ''Nature de la zone réglementée'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature_detaillee IS ''Nature précise de la zone réglementée'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en MULTIPOLYGON'';
-';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.31 piste_d_aerodrome
-IF covadis is true
-	then
-		nom_table := 'n_piste_d_aerodrome_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'piste_d_aerodrome';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Aire située sur un aérodrome, aménagée afin de servir au roulement des aéronefs, au décollage et à l’atterrissage'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.etat_de_l_objet IS ''Etat ou stade d´un objet qui peut être en projet, en construction, en service ou non exploité'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_altimetrique IS ''Précision altimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature IS ''Attribut précisant le revêtement de la piste'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.fonction IS ''Fonction associée à la piste'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en MULTIPOLYGON'';
-';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.32 plan_d_eau
-IF covadis is true
-	then
-		nom_table := 'n_plan_d_eau_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'plan_d_eau';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Etendue d’eau d’origine naturelle ou anthropique'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.importance IS ''Attribut permettant de hiérarchiser les objets d´une classe en fonction de leur importance relative'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.toponyme IS ''Toponyme de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.statut_du_toponyme IS ''Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature IS ''Nature d´un objet hydrographique'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.statut IS ''Statut de l´objet dans le système d´information'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.altitude_moyenne IS ''Altitude à la cote moyenne ou normale du plan d´eau'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.referentiel_de_l_altitude_moyenne IS ''Méthode d´obtention de l´altitude à la cote moyenne ou normale du plan d´eau'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.mode_d_obtention_de_l_altitude_moy IS ''Méthode d´obtention de l´altitude à la cote moyenne ou normale du plan d´eau'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_de_l_altitude_moyenne IS ''Méthode d´obtention de l´altitude à la cote moyenne ou normale du plan d´eau'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.hauteur_d_eau_maximale IS ''Hauteur d’eau maximale d’un plan d’eau artificiel'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.mode_d_obtention_de_la_hauteur IS ''Méthode d´obtention de la hauteur maximale du plan d´eau'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_hydrographique IS ''Code hydrographique, signifiant, défini selon une méthode d´ordination donnée'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.commentaire_sur_l_objet_hydro IS ''Commentaire sur l´objet hydrographique'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.influence_de_la_maree IS ''Indique si l´eau de surface est affectée par la marée'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.caractere_permanent IS ''Indique si le plan d´eau est permanent'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en MULTIPOLYGON'';
-';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.33 point_de_repere
-IF covadis is true
-	then
-		nom_table := 'n_point_de_repere_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'point_de_repere';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Point de repère situé le long d’une route et utilisé pour assurer le référencement linéaire d’objets ou d’évènements le long de cette route'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_insee_du_departement IS ''Code INSEE du département'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.route IS ''Numéro de la route classée à laquelle le PR est associé'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.numero IS ''Numéro du PR propre à la route à laquelle il est associé'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.abscisse IS ''Abscisse du PR le long de la route à laquelle il est associé'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cote IS ''Côté de la route où se situe le PR par rapport au sens des PR croissants '';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en POINT'';
-';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.34 point_du_reseau
-IF covadis is true
-	then
-		nom_table := 'n_point_du_reseau_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'point_du_reseau';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Point particulier d’un réseau de transport pouvant constituer, un obstacle permanent ou temporaire à la circulation'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.etat_de_l_objet IS ''Etat ou stade d´un objet qui peut être en projet, en construction, en service ou non exploité'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_altimetrique IS ''Précision altimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.toponyme IS ''Toponyme de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.statut_du_toponyme IS ''Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature IS ''Nature d´un point particulier situé sur un réseau de communication'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature_detaillee IS ''Attribut précisant la nature d´un point particulier situé sur un réseau de communication'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en POINT'';
-';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.35 poste_de_transformation
-IF covadis is true
-	then
-		nom_table := 'n_poste_de_transformation_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'poste_de_transformation';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Enceinte à l’intérieur de laquelle le courant transporté par une ligne électrique est transformé'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.etat_de_l_objet IS ''Etat ou stade d´un objet qui peut être en projet, en construction ou en service'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_altimetrique IS ''Précision altimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.importance IS ''Attribut permettant de hiérarchiser les objets d´une classe en fonction de leur importance relative'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.toponyme IS ''Toponyme de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.statut_du_toponyme IS ''Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en POINT'';
-';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.36 pylone
-IF covadis is true
-	then
-		nom_table := 'n_pylone_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'pylone';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Support en charpente métallique ou en béton, d’une ligne électrique aérienne'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.etat_de_l_objet IS ''Etat ou stade d´un objet qui peut être en projet, en construction ou en service'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_altimetrique IS ''Précision altimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.hauteur IS ''Hauteur du pylône'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en POINT'';
-';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.37 region
-IF covadis is true
-	then
-		nom_table := 'n_region_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'region';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - La région est à la fois une circonscription administrative déconcentrée de l’Etat qui englobe un ou plusieurs départements, et une collectivité territoriale décentralisée présidé par un conseil régional.'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_insee IS ''Code INSEE de la région'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nom_officiel IS ''Nom officiel de la région'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.liens_vers_autorite_administrative IS ''Lien vers la préfecture de région (zone d´activité ou d´intérêt)'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en MULTIPOLYGON'';
-';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.38 reservoir
-IF covadis is true
-	then
-		nom_table := 'n_reservoir_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'reservoir';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) then
----- Commentaire Table
-req :='
-	COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Réservoir (eau, matières industrielles,…)'';
-';
-RAISE NOTICE '%', req;
-EXECUTE(req);
----- Commentaire colonnes
-req :='
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.etat_de_l_objet IS ''Etat ou stade d´un objet qui peut être en projet, en construction, en service ou en ruines'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_altimetrique IS ''Précision altimétrique de la géométrie décrivant l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature IS ''Nature du réservoir'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.hauteur IS ''Hauteur du réservoir'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.altitude_maximale_sol IS ''Altitude maximale au pied de la construction'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.altitude_maximale_toit IS ''Altitude maximale du toit'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.altitude_minimale_sol IS ''Altitude minimale au pied de la construction'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.altitude_minimale_toit IS ''Altitude minimale du toit'';
-	COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en MULTIPOLYGON'';
-';
-RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.39 route_numerotee_ou_nommee
-IF covadis is true
-	then
-		nom_table := 'n_route_numerotee_ou_nommee_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'route_numerotee_ou_nommee';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
-	---- Commentaire Table
-	req :='
-		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Voie de communication destinée aux automobiles, aux piétons, aux cycles ou aux animaux et possédant un numéro ou un nom particulier'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-	---- Commentaire colonnes
-	req :='
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.toponyme IS ''Toponyme de l´objet'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.statut_du_toponyme IS ''Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.type_de_route IS ''Statut d´une route numérotée ou nommée'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.gestionnaire IS ''Gestionnaire administratif de la route'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.numero IS ''Numéro de la route'';
-		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en MULTIPOLYGON'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.40 surface_hydrographique
-IF covadis is true
-	then
-		nom_table := 'n_surface_hydrographique_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'surface_hydrographique';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
-	---- Commentaire Table
-	req :='
-		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Zone couverte d’eau douce, d’eau salée ou glacier'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-	---- Commentaire colonnes
-	req :='
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.etat_de_l_objet IS ''Etat ou stade d´un objet qui peut être en projet, en construction ou en service'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_altimetrique IS ''Précision altimétrique de la géométrie décrivant l´objet'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature IS ''Nature d´un objet hydrographique'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.statut IS ''Statut de l´objet dans le système d´information'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.mode_d_obtention_des_coordonnees IS ''Méthode utilisée pour déterminer les coordonnées de l´objet hydrographique'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.mode_d_obtention_de_l_altitude IS ''Méthode utilisée pour établir l´altitude de l´objet hydrographique'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.persistance IS ''Degré de persistance de l´écoulement de l´eau'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.position_par_rapport_au_sol IS ''Niveau de l’objet par rapport à la surface du sol'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.origine IS ''Origine, naturelle ou artificielle, du tronçon hydrographique'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.salinite IS ''Permet de préciser si la surface élémentaire est de type eau salée (oui) ou eau douce (non)'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_du_pays IS ''Code du pays auquel appartient la surface hydrographique'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_hydrographique IS ''Code hydrographique'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.commentaire_sur_l_objet_hydro IS ''Commentaire sur l´objet hydrographique'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.liens_vers_plan_d_eau IS '' Identifiant (clé absolue) de l´objet Plan d´eau parent. Une surface hydrographique peut être liée avec 0 à n objets Plan d´eau ''; 
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.liens_vers_cours_d_eau IS '' Identifiant (clé absolue) de l´objet Cours d´eau traversant la Surface hydrographique. Une surface hydrographique peut être liée avec 0 à n objets Cours d´eau'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.lien_vers_entite_de_transition IS '' Identifiant (clé absolue) de l´objet Entité de transition à laquelle appartient la Surface hydrographique (estuaires, deltas...). Une surface hydrographique peut être liée avec 0 ou 1 objet Entité de transition'';
- 			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cpx_toponyme_de_plan_d_eau IS ''Toponyme(s) du ou des Plans d´eau constitués par la surface hydrographique'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cpx_toponyme_de_cours_d_eau IS ''Toponyme(s) du ou des Cours d´eau traversant la surface hydrographique'';
-	 		COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cpx_toponyme_d_entite_de_transition IS ''Toponyme(s) de l´Entité de transition traversant la surface hydrographique'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en MULTIPOLYGON'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.41 terrain_de_sport
-IF covadis is true
-	then
-		nom_table := 'n_terrain_de_sport_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'terrain_de_sport';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
-	---- Commentaire Table
-	req :='
-		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Équipement sportif de plein air'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-	---- Commentaire colonnes
-	req :='
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.etat_de_l_objet IS ''Etat ou stade d´un objet qui peut être en projet, en construction, en service ou en ruines'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_altimetrique IS ''Précision altimétrique de la géométrie décrivant l´objet'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature IS ''Nature du terrain de sport'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature_detaillee IS ''Nature précise du terrain de sport'';	
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en MULTIPOLYGON'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.42 toponymie_bati
-IF covadis is true
-	then
-		nom_table := 'n_toponymie_bati_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'toponymie_bati';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
-	---- Commentaire Table
-	req :='
-		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Toponymie riche du thème bâti'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-	---- Commentaire colonnes
-	req :='
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs_de_l_objet IS ''Identifiant de l´objet topographique auquel se rapporte ce toponyme'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.classe_de_l_objet IS ''Classe ou table où est situé l´objet topographique auquel se rapporte ce toponyme'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature_de_l_objet IS ''Nature de l´objet nommé (généralement issu de l´attribut nature de cet objet)'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.graphie_du_toponyme IS ''Une des graphies possibles pour décrire l´objet topographique'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.source_du_toponyme IS ''Source de la graphie (peut être différent de la source de l´objet topographique lui-même)'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.statut_du_toponyme IS ''Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_du_toponyme IS ''Date d´enregistrement ou de validation du toponyme'';	
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en POINT'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.43 toponymie_hydrographie
-IF covadis is true
-	then
-		nom_table := 'n_toponymie_hydrographie_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'toponymie_hydrographie';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
-	---- Commentaire Table
-	req :='
-		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Toponymie riche du thème hydrographie'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-	---- Commentaire colonnes
-	req :='
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs_de_l_objet IS ''Identifiant de l´objet topographique auquel se rapporte ce toponyme'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.classe_de_l_objet IS ''Classe ou table où est situé l´objet topographique auquel se rapporte ce toponyme'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature_de_l_objet IS ''Nature de l´objet nommé (généralement issu de l´attribut nature de cet objet)'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.graphie_du_toponyme IS ''Une des graphies possibles pour décrire l´objet topographique'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.source_du_toponyme IS ''Source de la graphie (peut être différent de la source de l´objet topographique lui-même)'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.statut_du_toponyme IS ''Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_du_toponyme IS ''Date d´enregistrement ou de validation du toponyme'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en POINT'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.44 toponymie_lieux_nommes
-IF covadis is true
-	then
-		nom_table := 'n_toponymie_lieux_nommes_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'toponymie_lieux_nommes';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
-	---- Commentaire Table
-	req :='
-		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Toponymie riche des lieux nommés'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-	---- Commentaire colonnes
-	req :='
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs_de_l_objet IS ''Identifiant de l´objet topographique auquel se rapporte ce toponyme'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.classe_de_l_objet IS ''Classe ou table où est situé l´objet topographique auquel se rapporte ce toponyme'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature_de_l_objet IS ''Nature de l´objet nommé (généralement issu de l´attribut nature de cet objet)'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.graphie_du_toponyme IS ''Une des graphies possibles pour décrire l´objet topographique'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.source_du_toponyme IS ''Source de la graphie (peut être différent de la source de l´objet topographique lui-même)'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.statut_du_toponyme IS ''Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_du_toponyme IS ''Date d´enregistrement ou de validation du toponyme'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en POINT'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.45 toponymie_services_et_activites
-IF covadis is true
-	then
-		nom_table := 'n_toponymie_services_et_activites_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'toponymie_services_et_activites';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
-	---- Commentaire Table
-	req :='
-		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Toponymie riche du thème services et activités'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-	---- Commentaire colonnes
-	req :='
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs_de_l_objet IS ''Identifiant de l´objet topographique auquel se rapporte ce toponyme'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.classe_de_l_objet IS ''Classe ou table où est situé l´objet topographique auquel se rapporte ce toponyme'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature_de_l_objet IS ''Nature de l´objet nommé (généralement issu de l´attribut nature de cet objet)'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.graphie_du_toponyme IS ''Une des graphies possibles pour décrire l´objet topographique'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.source_du_toponyme IS ''Source de la graphie (peut être différent de la source de l´objet topographique lui-même)'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.statut_du_toponyme IS ''Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_du_toponyme IS ''Date d´enregistrement ou de validation du toponyme'';	
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en POINT'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.46 toponymie_transport
-IF covadis is true
-	then
-		nom_table := 'n_toponymie_transport_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'toponymie_transport';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
-	---- Commentaire Table
-	req :='
-		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Toponymie riche du thème transport'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-	---- Commentaire colonnes
-	req :='
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs_de_l_objet IS ''Identifiant de l´objet topographique auquel se rapporte ce toponyme'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.classe_de_l_objet IS ''Classe ou table où est situé l´objet topographique auquel se rapporte ce toponyme'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature_de_l_objet IS ''Nature de l´objet nommé (généralement issu de l´attribut nature de cet objet)'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.graphie_du_toponyme IS ''Une des graphies possibles pour décrire l´objet topographique'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.source_du_toponyme IS ''Source de la graphie (peut être différent de la source de l´objet topographique lui-même)'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.statut_du_toponyme IS ''Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_du_toponyme IS ''Date d´enregistrement ou de validation du toponyme'';	
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en POINT'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.47 toponymie_zones_reglementees
-IF covadis is true
-	then
-		nom_table := 'n_toponymie_zones_reglementees_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'toponymie_zones_reglementees';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
-	---- Commentaire Table
-	req :='
-		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Toponymie riche du thème zones réglementées'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-	---- Commentaire colonnes
-	req :='
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs_de_l_objet IS ''Identifiant de l´objet topographique auquel se rapporte ce toponyme'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.classe_de_l_objet IS ''Classe ou table où est situé l´objet topographique auquel se rapporte ce toponyme'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature_de_l_objet IS ''Nature de l´objet nommé (généralement issu de l´attribut nature de cet objet)'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.graphie_du_toponyme IS ''Une des graphies possibles pour décrire l´objet topographique'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.source_du_toponyme IS ''Source de la graphie (peut être différent de la source de l´objet topographique lui-même)'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.statut_du_toponyme IS ''Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_du_toponyme IS ''Date d´enregistrement ou de validation du toponyme'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en POINT'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.48 transport_par_cable
-IF covadis is true
-	then
-		nom_table := 'n_transport_par_cable_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'transport_par_cable';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
-	---- Commentaire Table
-	req :='
-		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Moyen de transport constitué d’un ou de plusieurs câbles porteurs'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-	---- Commentaire colonnes
-	req :='	
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.etat_de_l_objet IS ''Etat ou stade d´un objet qui peut être en projet, en construction, en service ou non exploité'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_altimetrique IS ''Précision altimétrique de la géométrie décrivant l´objet'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.importance IS ''Attribut permettant de hiérarchiser les objets d´une classe en fonction de leur importance relative'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.toponyme IS ''Toponyme de l´objet'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.statut_du_toponyme IS ''Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature IS ''Attribut permettant de distinguer différents types de transport par câble'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en POINT'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.49 troncon_de_route
-IF covadis is true
-	then
-		nom_table := 'n_troncon_de_route_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'troncon_de_route';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
-	---- Commentaire Table
-	req :='
-		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Portion de voie de communication destinée aux automobiles, aux piétons, aux cycles ou aux animaux,  homogène pour l’ensemble des attributs et des relations qui la concernent'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-	---- Commentaire colonnes
-	req :='	
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.etat_de_l_objet IS ''Etat ou stade d´un objet qui peut être en projet, en construction ou en service'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_altimetrique IS ''Précision altimétrique de la géométrie décrivant l´objet'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.importance IS ''Attribut permettant de hiérarchiser les objets d´une classe en fonction de leur importance relative'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.fictif IS ''Indique que la géométrie de l´objet n´est pas précise (utilisé pour assurer l´exhaustivité d´une classe ou la continuité d´un réseau même lorsque la forme de ses éléments n´est pas connu avec précis (...)'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature IS ''Attribut permettant de classer un tronçon de route ou de chemin suivant ses caractéristiques physiques'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.position_par_rapport_au_sol IS ''Position du tronçon par rapport au niveau du sol'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nombre_de_voies IS ''Nombre total de voies de circulation tracées au sol ou effectivement utilisées, sur une route, une rue ou une chaussée de route à chaussées séparées'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.largeur_de_chaussee IS ''Largeur de la chaussée, en mètres'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.itineraire_vert IS ''Indique l’appartenance ou non d’un tronçon routier au réseau vert'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_mise_en_service IS ''Date prévue ou la date effective de mise en service d’un tronçon de route'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.prive IS ''Indique le caractère privé d´un tronçon de route carrossable'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sens_de_circulation IS ''Sens licite de circulation sur les voies pour les véhicules légers'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.bande_cyclable IS ''Sens de circulation sur les bandes cyclables'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.reserve_aux_bus IS ''Sens de circulation sur les voies réservées au bus'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.urbain IS ''Indique que le tronçon de route est situé en zone urbaine'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.vitesse_moyenne_vl IS ''Vitesse moyenne des véhicules légers dans le sens direct'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.acces_vehicule_leger IS ''Conditions de circulation sur le tronçon pour un véhicule léger'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.acces_pieton IS ''Conditions d´accès pour les piétons'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.periode_de_fermeture IS ''Périodes pendant lesquelles le tronçon n´est pas accessible à la circulation automobile'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature_de_la_restriction IS ''Nature précise de la restriction sur un tronçon où la circulation automobile est restreinte'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.restriction_de_hauteur IS ''Exprime l´interdiction de circuler pour les véhicules dépassant la hauteur indiquée'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.restriction_de_poids_total IS ''Exprime l´interdiction de circuler pour les véhicules dépassant le poids indiqué'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.restriction_de_poids_par_essieu IS ''Exprime l´interdiction de circuler pour les véhicules dépassant le poids par essieu indiqué'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.restriction_de_largeur IS ''Exprime l´interdiction de circuler pour les véhicules dépassant la largeur indiquée'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.restriction_de_longueur IS ''Exprime l´interdiction de circuler pour les véhicules dépassant la longueur indiquée'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.matieres_dangereuses_interdites IS ''Exprime l´interdiction de circuler pour les véhicules transportant des matières dangereuses'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiant_voie_1_gauche IS ''Identifiant de la voie pour le côté gauche du tronçon'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiant_voie_1_droite IS ''Identifiant de la voie pour le côté droit du tronçon'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nom_1_gauche IS ''Nom principal de la rue, côté gauche du tronçon : nom de la voie ou nom de lieu-dit le cas échéant'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nom_1_droite IS ''Nom principal de la rue, côté droit du tronçon : nom de la voie ou nom de lieu-dit le cas échéant'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nom_2_gauche IS ''Nom secondaire de la rue, côté gauche du tronçon (éventuel nom de lieu-dit)'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nom_2_droite IS ''Nom secondaire de la rue, côté droit du tronçon (éventuel nom de lieu-dit)'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.borne_debut_gauche IS ''Numéro de borne à gauche du tronçon en son sommet initial'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.borne_debut_droite IS ''Numéro de borne à droite du tronçon en son sommet initial'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.borne_fin_gauche IS ''Numéro de borne à gauche du tronçon en son sommet final'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.borne_fin_droite IS ''Numéro de borne à droite du tronçon en son sommet final'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.insee_commune_gauche IS ''Code INSEE de la commune située à droite du tronçon'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.insee_commune_droite IS ''Code INSEE de la commune située à gauche du tronçon'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.type_d_adressage_du_troncon IS ''Type d´adressage du tronçon'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.alias_gauche IS ''Ancien nom, nom en langue régionale ou désignation d’une voie communale utilisé pour le côté gauche de la rue'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.alias_droit IS ''Ancien nom, nom en langue régionale ou désignation d’une voie communale utilisé pour le côté droit de la rue'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_postal_gauche IS ''Code postal du bureau distributeur des adresses situées à gauche du tronçon par rapport à son sens de numérisation'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_postal_droit IS ''Code postal du bureau distributeur des adresses situées à droite du tronçon par rapport à son sens de numérisation'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.liens_vers_route_nommee IS ''Identifiant(s) (clé absolue) de l´objet Route numérotée ou nommée parent(s)''; 
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cpx_classement_administratif IS ''Classement administratif de la route'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cpx_numero IS ''Numéro d´une route classée'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cpx_gestionnaire IS ''Gestionnaire d´une route classée'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cpx_numero_route_europeenne IS ''Numéro d´une route européenne'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cpx_toponyme_route_nommee IS ''Toponyme d´une route nommée (n´inclut pas les noms de rue)'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cpx_toponyme_itineraire_cyclable IS ''Nom d´un itinéraire cyclable'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cpx_toponyme_voie_verte IS ''Nom d´une voie verte'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en LINESTRING'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.50 troncon_de_voie_ferree
-IF covadis is true
-	then
-		nom_table := 'n_troncon_de_voie_ferree_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'troncon_de_voie_ferree';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
-	---- Commentaire Table
-	req :='
-		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Portion de voie ferrée homogène pour l’ensemble des attributs qui la concernent'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-	---- Commentaire colonnes
-	req :='
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.etat_de_l_objet IS ''Etat ou stade d´un objet qui peut être en projet, en construction, en service ou non exploité'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_altimetrique IS ''Précision altimétrique de la géométrie décrivant l´objet'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature IS ''Attribut permettant de distinguer plusieurs types de voies ferrées selon leur fonction'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.electrifie IS ''Indique si la voie ferrée est électrifiée'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.largeur IS ''Attribut permettant de distinguer les voies ferrées de largeur standard pour la France (1,435 m), des voies ferrées plus larges ou plus étroites'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nombre_de_voies IS ''Attribut indiquant si une ligne de chemin de fer est constituée d´une seule voie ferrée ou de plusieurs'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.position_par_rapport_au_sol IS ''Niveau de l’objet par rapport à la surface du sol (valeur négative pour un objet souterrain, nulle pour un objet au sol et positive pour un objet en sursol)'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.usage IS ''Précise le type de transport auquel la voie ferrée est destinée'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.vitesse_maximale IS ''Vitesse maximale pour laquelle la ligne a été construite'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.liens_vers_voie_ferree_nommee IS ''Le cas échéant, lien vers l´identifiant (clé absolue) de l´objet Voie ferrée nommée décrivant le parcours et le toponyme de l´itinéraire ferré auquel ce tronçon appartient''; 
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cpx_toponyme IS ''Nom de la ligne ferroviaire'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en LINESTRING'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.51 troncon_hydrographique
-IF covadis is true
-	then
-		nom_table := 'n_troncon_hydrographique_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'troncon_hydrographique';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
-	---- Commentaire Table
-	req :='
-
-		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Axe du lit d’une rivière, d’un ruisseau ou d’un canal, homogène pour ses attributs et ses relations et n’inclant pas de confluent en dehors de ses extrémités’'';
-
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-	---- Commentaire colonnes
-	req :='
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.etat_de_l_objet IS ''Etat ou stade d´un objet qui peut être en projet, en construction ou en service'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_altimetrique IS ''Précision altimétrique de la géométrie décrivant l´objet'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.fictif IS ''Indique que la géométrie de l´objet n´est pas précise (utilisé pour assurer l´exhaustivité d´une classe ou la continuité d´un réseau même lorsque la forme de ses éléments n´est pas connu avec  (...)'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature IS ''Nature d´un tronçon hydrographique'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.statut IS ''Statut de l´objet dans le système d´information'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.numero_d_ordre IS ''Nombre (ou code) exprimant le degré de ramification d´un tronçon hydrographique'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.strategie_de_classement IS ''Stratégie de classement du tronçon hydrographique'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.perimetre_d_utilisation_ou_origine IS ''Périmètre d´utilisation ou origine du tronçon hydrographique'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sens_de_l_ecoulement IS ''Sens d´écoulement de l´eau dans le tronçon par rapport à la numérisation de sa géométrie'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.mode_d_obtention_des_coordonnees IS ''Méthode d’obtention des coordonnées d´un tronçon hydrographique'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.mode_d_obtention_de_l_altitude IS ''Mode d´obtention de l´altitude'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.reseau_principal_coulant IS ''Appartient au réseau principal coulant'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.delimitation IS ''Indique que la délimitation (par exemple, limites et autres informations) d´un objet géographique est connue'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.origine IS ''Origine, naturelle ou artificielle, du tronçon hydrographique'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.classe_de_largeur IS ''Classe de largeur du tronçon hydrographique'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.salinite IS ''Permet de préciser si le tronçon hydrographique est de type eau salée ou eau douce'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.type_de_bras IS ''Type de bras'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.persistance IS ''Degré de persistance de l´écoulement de l´eau'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.position_par_rapport_au_sol IS ''Niveau de l’objet par rapport à la surface du sol'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.fosse IS ''Indique qu´il s´agit d´un fossé et non pas d´un cours d´eau'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.navigabilite IS ''Navigabilité du tronçon hydrographique'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_du_pays IS ''Code du pays auquel appartient le tronçon hydrographique'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_hydrographique IS ''Code hydrographique'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.commentaire_sur_l_objet_hydro IS ''Commentaire sur l´objet hydrographique'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.inventaire_police_de_l_eau IS ''Classé à l´inventaire de la police de l´eau'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiant_police_de_l_eau IS ''Identifiant police de l´eau'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.code_du_cours_d_eau_bdcarthage IS ''Code générique du cours d´eau BDCarthage'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.liens_vers_cours_d_eau IS ''Identifiant (clé absolue) du cours d´eau principal du bassin versant'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.liens_vers_surface_hydrographique IS ''Identifiant(s) du ou des éventuel(s) objets Surface hydrographique traversé(s) par le tronçon hydrographique'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.lien_vers_entite_de_transition IS ''Identifiant de l´éventuel objet Entité de transition auquel appartient le tronçon hydrographique''; 
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cpx_toponyme_de_cours_d_eau IS ''Toponyme du cours d´eau'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cpx_toponyme_d_entite_de_transition IS ''Toponyme(s) du ou des Entité de transition traversant la surface hydrographique'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en LINESTRING'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.52 voie_ferree_nommee
-IF covadis is true
-	then
-		nom_table := 'n_voie_ferree_nommee_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'voie_ferree_nommee';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
-	---- Commentaire Table
-	req :='
-		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Itinéraire ferré décrivant une voie ferrée nommée, touristique ou non, un vélo-rail'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-	---- Commentaire colonnes
-	req :='
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.toponyme IS ''Toponyme de l´objet'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.statut_du_toponyme IS ''Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en LINESTRING'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.53 zone_d_activite_ou_d_interet
-IF covadis is true
-	then
-		nom_table := 'n_zone_d_activite_ou_d_interet_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'zone_d_activite_ou_d_interet';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
-	---- Commentaire Table
-	req :='
-		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Lieu dédié à une activité particulière ou présentant un intérêt spécifique'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-	---- Commentaire colonnes
-	req :='
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.etat_de_l_objet IS ''Etat ou stade d´un objet qui peut être en projet, en construction, en service ou en ruines'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.importance IS ''Attribut permettant de hiérarchiser les objets d´une classe en fonction de leur importance relative'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.toponyme IS ''Toponyme de l´objet'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.statut_du_toponyme IS ''Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.fictif IS ''Indique que la géométrie de l´objet n´est pas précise (utilisé pour assurer l´exhaustivité d´une classe ou la continuité d´un réseau même lorsque la forme de ses éléments n´est pas connu (...)'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.categorie IS ''Attribut permettant de distinguer plusieurs types d´activité sans rentrer dans le détail de chaque nature'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature IS ''Nature de la zone d´activité ou d´intérêt'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature_detaillee IS ''Nature précise de la zone d´activité ou d´intérêt'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en MULTIPOLYGON'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.54 zone_d_estran
-IF covadis is true
-	then
-		nom_table := 'n_zone_d_estran_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'zone_d_estran';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
-	---- Commentaire Table
-	req :='
-		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Partie du littoral située entre les limites extrêmes des plus hautes et des plus basses marées'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-	---- Commentaire colonnes
-	req :='
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature IS ''Nature de la zone d´estran'';	
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en MULTIPOLYGON'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.55 zone_d_habitation
-IF covadis is true
-	then
-		nom_table := 'n_zone_d_habitation_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'zone_d_habitation';
-		nomgeometrie := 'geometrie';
-END IF;
-
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
-	---- Commentaire Table
-	req :='
-		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Zone habitée de manière permanente ou temporaire ou ruines'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-	---- Commentaire colonnes
-	req :='
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.etat_de_l_objet IS ''Etat ou stade d´un objet qui peut être en projet, en construction, en service ou en ruines'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.sources IS ''Organismes attestant l´existence de l´objet'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.identifiants_sources IS ''Identifiants de l´objet dans les répertoires des organismes consultés pour leur inventaire'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.importance IS ''Attribut permettant de hiérarchiser les objets d´une classe en fonction de leur importance relative'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.toponyme IS ''Toponyme de l´objet'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.statut_du_toponyme IS ''Information relative au processus de validation de la graphie du toponyme et donnant une indication sur sa fiabilité'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.fictif IS ''Indique que la géométrie de l´objet n´est pas précise (utilisé pour assurer l´exhaustivité d´une classe ou la continuité d´un réseau même lorsque la forme de ses éléments n´est pas connu avec préci (...)'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature IS ''Nature de la zone d´habitation'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature_detaillee IS ''Nature précise de la zone d´habitation'';	
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en MULTIPOLYGON'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
-
----- D.56 zone_de_vegetation
-IF covadis is true
-	then
-		nom_table := 'n_zone_de_vegetation_bdt_' || emprise || '_' || millesime;
-		nomgeometrie := 'geom';
-	else
-		nom_table := 'zone_de_vegetation';
-		nomgeometrie := 'geometrie';
-END IF;
-IF EXISTS (SELECT relname FROM pg_class where relname='' || nom_table ) THEN
-	---- Commentaire Table
-	req :='
-		COMMENT ON TABLE ' || nom_schema || '.' || nom_table || ' IS ''IGN BDTOPO® - Edition 191 - Espace végétal naturel ou non,différencié en particulier selon le couvert forestier'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-	---- Commentaire colonnes
-	req :='	
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.precision_planimetrique IS ''Précision planimétrique de la géométrie décrivant l´objet'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.nature IS ''Nature de la végétation'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.cleabs IS ''Identifiant unique de l´objet dans la BDTopo'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_creation IS ''Date à laquelle l´objet a été saisi pour la première fois dans la base de données'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_modification IS ''Date à laquelle l´objet a été modifié pour la dernière fois dans la base de données'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_d_apparition IS ''Date de création, de construction ou d´apparition de l´objet, ou date la plus ancienne à laquelle on peut attester de sa présence sur le terrain'';
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.date_de_confirmation IS ''Date la plus récente à laquelle on peut attester de la présence de l´objet sur le terrain'';		
-			COMMENT ON COLUMN ' || nom_schema || '.' || nom_table || '.' || nomgeometrie || ' IS ''Champs géométrique en MULTIPOLYGON'';
-	';
-	RAISE NOTICE '%', req;
-	EXECUTE(req);
-END IF;
+		req := '
+				La table ' || nom_schema || '.' || nom_table || ' n´est pas présente pour le champs ' || champs || '.
+				';
+		RAISE NOTICE '%', req;
+	END IF;
+
+END LOOP; 
 
 RETURN current_time;
 END; 
+
 $function$
 ;
+
+COMMENT ON FUNCTION w_adl_delegue.set_comment_bdtopo_3("varchar","bpchar","bpchar","bpchar","bool") IS '[ADMIN - BDTOPO] - Mise en place des commentaires
+
+Option :
+- nom du schéma où se trouvent les tables
+- format de livraison de l''IGN :
+	- ''shp'' = shapefile
+	- ''sql'' = dump postgis
+- emprise sur 3 caractères selon la COVADIS ddd : 
+	- ''fra'' : France Entière
+	- ''000'' : France Métropolitaine
+	- ''rrr'' : Numéro INSEE de la Région : ''r84'' pour Avergne-Rhône-Alpes
+	- ''ddd'' : Numéro INSEE du département : ''038'' pour l''Isère
+				non pris en compte si COVADIS = false
+- millesime selon COVADIS : aaaa pour l''année du millesime ou null si pas de millesime
+				non pris en compte si COVADIS = false
+- COVADIS : nommage des tble selon la COVADIS : oui : true / non false
+
+Tables concernées :
+	adresse
+	aerodrome
+	arrondissement
+	arrondissement_municipal
+	bassin_versant_topographique
+	batiment
+	canalisation
+	cimetiere
+	collectivite_territoriale
+	commune_associee_ou_deleguee
+	commune
+	construction_lineaire	
+	construction_ponctuelle	
+	construction_surfacique	
+	cours_d_eau
+	departement	
+	detail_hydrographique	
+	detail_orographique	
+	epci	
+	equipement_de_transport
+	erp
+	foret_publique
+	haie
+	lieu_dit_non_habite	
+	ligne_electrique
+	ligne_orographique	
+	limite_terre_mer	
+	noeud_hydrographique	
+	non_communication	
+	parc_ou_reserve	
+	piste_d_aerodrome	
+	plan_d_eau
+	point_de_repere
+	point_du_reseau	
+	poste_de_transformation	
+	pylone	
+	region	
+	reservoir	
+	route_numerotee_ou_nommee		
+	surface_hydrographique	
+	terrain_de_sport	
+	toponymie_bati	
+	toponymie_hydrographie	
+	toponymie_lieux_nommes	
+	toponymie_services_et_activites	
+	toponymie_transport	
+	toponymie_zones_reglementees	
+	transport_par_cable	
+	troncon_de_route	
+	troncon_de_voie_ferree	
+	troncon_hydrographique	
+	voie_ferree_nommee	
+	zone_d_activite_ou_d_interet	
+	zone_d_estran	
+	zone_d_habitation	
+	zone_de_vegetation	
+
+amélioration à faire :
+
+
+dernière MAJ : 12/12/2019';
