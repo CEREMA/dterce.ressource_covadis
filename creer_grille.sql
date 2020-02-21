@@ -22,6 +22,8 @@ Tables concernées :
 
 amélioration à faire :
 - passer la projection en paramètre : par defaut à 2154. 
+
+dernière MAJ : 21/02/2020
 */
 
 DECLARE
@@ -116,4 +118,6 @@ Tables concernées :
 - paramètre en entrée
 
 amélioration à faire :
-- passer la projection en paramètre : par defaut à 2154.';
+- passer la projection en paramètre : par defaut à 2154.
+
+dernière MAJ : 21/02/2020';
